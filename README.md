@@ -31,8 +31,11 @@
 ```sh
 go build -o amane ./cmd/amane
 
-# 鍵生成(両側で)
-amane genkey | sudo tee /etc/amane/server.key | amane pubkey   # 公開鍵が表示される
+# [サーバ側] 鍵生成 — 表示される公開鍵をクライアントの client.toml (server_public_key) へ
+amane genkey | sudo tee /etc/amane/server.key | amane pubkey
+
+# [クライアント側] 鍵生成 — 表示される公開鍵をサーバの server.toml ([[peer]].public_key) へ
+amane genkey | sudo tee /etc/amane/client.key | amane pubkey
 
 # サーバ (グローバルIPのあるLinux)
 sudo amane server -c server.toml
@@ -43,6 +46,9 @@ sudo amane client -c client.toml
 # 状態確認
 amane status --watch
 ```
+
+秘密鍵(`*.key`)は生成したマシンから外に出さず、**公開鍵の文字列だけ**を相手の設定に書きます。
+詳しい配置は [docs/deploy.md](docs/deploy.md) の配置マトリクスを参照。
 
 設定例は [docs/examples/](docs/examples/)、詳しい手順は [docs/deploy.md](docs/deploy.md)、
 プロトコル仕様は [docs/protocol.md](docs/protocol.md) を参照。

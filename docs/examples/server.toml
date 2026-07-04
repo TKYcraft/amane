@@ -3,7 +3,9 @@
 listen           = "0.0.0.0:51820"
 private_key_file = "/etc/amane/server.key"   # amane genkey で生成
 tunnel_address   = "10.77.0.1/24"
-# mtu            = 1400
+# mtu = WAN経路MTUの最小値 - 68。既定1400はWAN MTU>=1468前提。
+# 例: サーバ回線のMTUが1460なら 1460-68 = 1392(クライアントと同じ値にする)
+# mtu            = 1392
 # control_socket = "/var/run/amane.sock"
 
 [server.nat]

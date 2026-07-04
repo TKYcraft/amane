@@ -5,8 +5,12 @@ server            = "relay.example.com:51820"
 server_public_key = "REPLACE_WITH_SERVER_PUBLIC_KEY"
 tunnel_address    = "10.77.0.2/24"
 mode              = "bonding"                     # bonding | redundant
-# mtu             = 1400
-# routes          = ["0.0.0.0/0"]                 # トンネルに向ける宛先(省略時はトンネルサブネットのみ)
+# mtu = WAN経路MTUの最小値 - 68(サーバ側と同じ値にする)。例: 1460回線なら1392
+# mtu             = 1392
+# routes: トンネルに向ける宛先。
+#   省略(推奨・配信用途) = トンネルサブネットのみ。OBS等は srt://10.77.0.1:... へ送る
+#   ["0.0.0.0/0"] = 全トラフィック(/1+/1分割ルート。amane自身はIFバインドで除外される)
+# routes          = ["0.0.0.0/0"]
 # preshared_key_file = "/etc/amane/psk"
 # control_socket  = "/var/run/amane.sock"
 
