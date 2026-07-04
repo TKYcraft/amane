@@ -1,0 +1,32 @@
+# amane クライアント設定例 (macOS PC / Linux ルーター)
+[client]
+private_key_file  = "/etc/amane/client.key"      # amane genkey で生成
+server            = "relay.example.com:51820"
+server_public_key = "REPLACE_WITH_SERVER_PUBLIC_KEY"
+tunnel_address    = "10.77.0.2/24"
+mode              = "bonding"                     # bonding | redundant
+# mtu             = 1400
+# routes          = ["0.0.0.0/0"]                 # トンネルに向ける宛先(省略時はトンネルサブネットのみ)
+# preshared_key_file = "/etc/amane/psk"
+# control_socket  = "/var/run/amane.sock"
+
+[links]
+auto    = true                    # 使えるWANインターフェースを自動検出
+exclude = ["utun*", "awdl*", "llw*", "bridge*", "docker*", "veth*"]
+
+# 明示指定(auto と併用可。initial_mbps は帯域の初期ヒント)
+# [[links.link]]
+# interface   = "en10"            # LTEドングル1
+# initial_mbps = 30
+#
+# [[links.link]]
+# interface   = "en12"            # LTEドングル2
+
+# チューニング(すべて省略可、既定値を表示)
+# [tuning]
+# probe_interval_ms    = 200      # プローブ/キープアライブ間隔
+# max_reorder_delay_ms = 100      # リオーダ待ちの上限(ライブ配信は小さく)
+# dead_interval_probes = 5        # この回数分無応答でパスをdown判定
+# degrade_loss_pct     = 10       # このロス率超過が持続するとdegraded
+# degrade_rtt_ms       = 1000
+# rekey_seconds        = 120      # 鍵ローテーション周期

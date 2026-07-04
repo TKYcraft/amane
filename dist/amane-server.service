@@ -1,0 +1,16 @@
+[Unit]
+Description=amane multipath bonding tunnel (relay server)
+Documentation=https://github.com/TKYcraft/amane
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/amane server -c /etc/amane/server.toml
+Restart=on-failure
+RestartSec=3
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,94 @@
+# amane
+
+複数のモバイル回線(LTE/5G/Wi-Fi)を束ねて1本の安定した回線にする、
+マルチパス回線ボンディングトンネル。屋外イベントのライブ配信のように
+「単一キャリアでは帯域も安定性も足りない」場面のための、
+セルフホスト型・WireGuard風のツールです。
+
+```
+[クライアント]                                  [リレーサーバ]
+   TUN (10.77.0.2)                                TUN (10.77.0.1)
+    │ パケット単位で分散                           │ 並べ替え・再構成
+    ├─ LTE #1 ──┐                                 │
+    ├─ LTE #2 ──┼── 暗号化UDP(Noise IKpsk2) ──→ ├─→ NAT → インターネット
+    └─ Wi-Fi ───┘                                 │   (単一のグローバルIP)
+```
+
+- **帯域集約**: パス品質(RTT/ロス/実測レート)を常時プロービングし、
+  重み付きストライドスケジューラで分散。20+30Mbpsの2回線で単一回線の**1.64倍**の
+  実効スループット(netns統合テスト実測)。
+- **フェイルオーバー**: 回線断を約1秒で検知して残りの回線へ即時再配分。
+  復帰も自動(統合テスト実測: 10Hz ping 219発中欠落9)。
+- **冗長モード**: 全回線に同一パケットを複製し受信側で重複排除。
+  片側15%ロス×2回線でもpingロス約5%(単一回線なら往復28%相当)。
+- **WireGuard風の運用感**: base64鍵ペア+TOML設定1枚。Noise_IKpsk2による
+  公開鍵認証、未知の鍵には無応答(ステルス)、120秒ごとの自動鍵ローテーション。
+- **クロスプラットフォーム**: サーバ=Linux(Rocky等)、クライアント=macOS/Linux。
+  純Go・cgo不使用の単一バイナリ(OpenWrt/GL-MT3000向けarm64ビルド対応)。
+
+## クイックスタート
+
+```sh
+go build -o amane ./cmd/amane
+
+# 鍵生成(両側で)
+amane genkey | sudo tee /etc/amane/server.key | amane pubkey   # 公開鍵が表示される
+
+# サーバ (グローバルIPのあるLinux)
+sudo amane server -c server.toml
+
+# クライアント (macOS / Linux)
+sudo amane client -c client.toml
+
+# 状態確認
+amane status --watch
+```
+
+設定例は [docs/examples/](docs/examples/)、詳しい手順は [docs/deploy.md](docs/deploy.md)、
+プロトコル仕様は [docs/protocol.md](docs/protocol.md) を参照。
+
+```
+$ amane status
+SESSION  server → relay.example.com:51820   state=up  mode=bonding  key_age=34s
+PATH IF         ENDPOINT               STATE     RTT      LOSS   TX         RX         WEIGHT
+0    en10       203.0.113.7:51820      active    41.2ms   0.1%   18.3Mbps   1.1Mbps    41%
+1    en12       203.0.113.7:51820      active    61.1ms   0.0%   26.7Mbps   0.6Mbps    59%
+REORDER  timeout_flush=0  late_pass=0  dup_drop=0  buffer=0pkt/0ms
+```
+
+## コマンド
+
+| コマンド | 説明 |
+|---|---|
+| `amane server -c <toml>` | リレーサーバ起動 |
+| `amane client -c <toml>` | クライアント起動 |
+| `amane genkey` / `amane pubkey` | 鍵の生成・公開鍵導出 |
+| `amane status [--json] [--watch]` | パスごとの状態表示 |
+| `amane link add <if> [mbps]` / `remove <if>` | リンクの動的追加・削除 |
+| `amane mode <bonding\|redundant>` | スケジューリングモード切替(実行中に可) |
+
+## テスト
+
+```sh
+go test ./...                                  # 単体テスト
+go build -o /tmp/amane-lab/amane ./cmd/amane   # 統合テスト用バイナリ
+sudo bash test/lab/scenario_basic.sh           # netns疎通 + iperf3
+sudo bash test/lab/scenario_bonding.sh         # 帯域集約 (>1.6x)
+sudo bash test/lab/scenario_failover.sh        # 回線断・復帰
+sudo bash test/lab/scenario_redundant.sh       # 冗長モード
+sudo bash test/lab/scenario_rekey.sh           # 鍵ローテーション透過性
+```
+
+統合テストは network namespace + tc netem で複数WAN環境をエミュレートします(要root)。
+
+## ロードマップ
+
+- FEC(Reed-Solomon; bondingとredundantの中間モード)
+- OpenWrt ipk パッケージ(GL-MT3000等)
+- TCP/QUIC フォールバック(UDPが絞られる会場対策)
+- Web UI、パスごとPMTUD、WireGuard式cookie DoS対策
+- batched I/O (sendmmsg/recvmmsg) と TUNオフロード活用
+
+## ライセンス
+
+TBD

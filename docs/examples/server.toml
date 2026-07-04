@@ -1,0 +1,23 @@
+# amane リレーサーバ設定例 (Rocky Linux 等 / グローバルIP保有)
+[server]
+listen           = "0.0.0.0:51820"
+private_key_file = "/etc/amane/server.key"   # amane genkey で生成
+tunnel_address   = "10.77.0.1/24"
+# mtu            = 1400
+# control_socket = "/var/run/amane.sock"
+
+[server.nat]
+enabled       = true      # ip_forward + nftables masquerade + MSSクランプを自動投入
+out_interface = "eth0"    # インターネット側インターフェース
+
+# 許可するクライアント(公開鍵認証)。1台につき1ブロック。
+[[peer]]
+name       = "field-unit-1"
+public_key = "REPLACE_WITH_CLIENT_PUBLIC_KEY"
+tunnel_ip  = "10.77.0.2"
+# preshared_key_file = "/etc/amane/psk-unit1"   # 任意の追加PSK
+
+# [[peer]]
+# name       = "field-unit-2"
+# public_key = "..."
+# tunnel_ip  = "10.77.0.3"
