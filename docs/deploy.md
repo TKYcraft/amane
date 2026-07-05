@@ -137,10 +137,11 @@ amane mode bonding
 
 ## 8. ライブ配信の推奨構成(OBS → YouTube 等)
 
-YouTube等へのインジェストは RTMP(S)=TCP が基本ですが、**TCPをRTT差のある
-複数パスで束ねると性能が出にくい**という既知の制限があります(docs/protocol.md参照)。
-本トンネルが最も性能を発揮するのはSRTのようなCBR/UDP系です。そこで
-LiveU/BELABOX と同じ2段構成を推奨します:
+YouTube Live のインジェストは RTMP / RTMPS / HLS / DASH のみで、**SRTでの直接
+打ち上げはできません**(公式: ingestion-protocol-comparison)。一方、RTMP(S)=TCP を
+そのままトンネルに通すと **TCPをRTT差のある複数パスで束ねると性能が出にくい**という
+既知の制限に当たります(docs/protocol.md参照)。本トンネルが最も性能を発揮するのは
+SRTのようなCBR/UDP系です。そこで LiveU/BELABOX と同じ2段構成を推奨します:
 
 ```
 [OBS] --SRT(UDP)--> [amaneトンネル(束ね)] --> [リレーサーバ] --RTMP(TCP)--> YouTube
@@ -151,12 +152,20 @@ LiveU/BELABOX と同じ2段構成を推奨します:
 (パターンAならルーティング設定は不要)。SRTの `latency` はパス間RTT差+リオーダ
 待ちを吸収するため **300〜500ms** 程度を推奨。
 
-**サーバ側:** ffmpeg等でSRT受け→RTMP転送:
+**サーバ側:** ffmpeg で SRT を受けて YouTube のプライマリ + バックアップ両方へ
+`tee` muxer で同時送出(フェイルオーバー用。同じストリームキーを両サーバに送る):
 
 ```sh
-ffmpeg -i "srt://10.77.0.1:9000?mode=listener&latency=400" \
-       -c copy -f flv "rtmp://a.rtmp.youtube.com/live2/<STREAM_KEY>"
+ffmpeg -hide_banner -loglevel warning \
+  -i "srt://10.77.0.1:9000?mode=listener&latency=400" \
+  -c copy \
+  -f tee "[f=flv:onfail=ignore:use_fifo=1]rtmps://a.rtmps.youtube.com/live2/<STREAM_KEY>|[f=flv:onfail=ignore:use_fifo=1]rtmps://b.rtmps.youtube.com/live2/<STREAM_KEY>?backup=1"
 ```
+
+- `onfail=ignore` で片方の接続断が全体を巻き込まないようにする
+- `use_fifo=1` で出力を独立バッファに切り離す(遅い側が他方に影響しない)
+- バックアップURLの `?backup=1` は必須(YouTube側の識別用)
+- 上り帯域は約2倍必要(1080p60 12Mbps なら 24Mbps + マージン)
 
 この構成の利点:
 - 束ねる区間はUDP(SRT)なので、bondingスケジューラの性能がフルに出る
@@ -166,6 +175,12 @@ ffmpeg -i "srt://10.77.0.1:9000?mode=listener&latency=400" \
 RTMPを直接トンネルに通すことも可能ですが(パターンB + MSSクランプ自動適用)、
 スループットは束ねた合計まで伸びないことがあります。確実性最優先の場面では
 `amane mode redundant`(全回線複製)も有効です。
+
+なお**SRTを直接受けられる配信先**(自前メディアサーバ、SRT対応CDN等)であれば、
+2段構成にせずSRTを直接トンネル越しに打ち上げても問題ありません(UDPなので相性は
+良好)。その場合は宛先がトンネル外IPになるため、パターンBにするか配信先IPを
+`routes` に追加してください。ただしSRTの再送ループが全区間に伸びるため、必要な
+`latency` は2段構成より大きめになります。
 
 ## 9. MTUの決め方
 
