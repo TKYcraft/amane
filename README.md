@@ -29,7 +29,11 @@
 ## クイックスタート
 
 ```sh
+# 手軽に1バイナリ
 go build -o amane ./cmd/amane
+
+# リリース同等の全ターゲット同時ビルド (Docker必要、CIと同じ手順)
+make dist            # -> dist/build/amane-{linux,darwin}-{amd64,arm64} + SHA256SUMS
 
 # [サーバ側] 鍵生成 — 表示される公開鍵をクライアントの client.toml (server_public_key) へ
 amane genkey | sudo tee /etc/amane/server.key | amane pubkey
