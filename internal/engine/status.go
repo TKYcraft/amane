@@ -56,6 +56,12 @@ func (s *session) status() ctl.SessionStatus {
 		Held:         rs.Held,
 		HeldOldestMs: rs.HeldOldestMs,
 	}
+	es, ds := s.fecEnc.Stats(), s.fecDec.Stats()
+	out.FEC = ctl.FECStatus{
+		ParitySent: es.ParitySent,
+		Recovered:  ds.Recovered,
+		Failed:     ds.Failed,
+	}
 	for i := range s.paths {
 		p := s.paths[i].Load()
 		if p == nil {

@@ -3,10 +3,12 @@ package engine
 import (
 	"net"
 	"net/netip"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/TKYcraft/amane/internal/fec"
 	"github.com/TKYcraft/amane/internal/keys"
 	"github.com/TKYcraft/amane/internal/noiseio"
 	"github.com/TKYcraft/amane/internal/path"
@@ -54,6 +56,12 @@ type session struct {
 	// server: when a duplicated (redundant-mode) data packet was last
 	// received; the server mirrors the client's scheduling mode from it.
 	lastDupUs atomic.Int64
+	// server: same for FEC-flagged data packets.
+	lastFecUs atomic.Int64
+
+	// FEC state (always present; only exercised in ModeFEC).
+	fecEnc *fec.Encoder
+	fecDec *fec.Decoder
 
 	dropNoPath  atomic.Uint64
 	dropNoEpoch atomic.Uint64
@@ -75,6 +83,8 @@ func newSession(e *Engine, name string, pub keys.Key, psk keys.Key, mode sched.M
 		epochs:  make(map[uint32]*epochEntry),
 		sched:   sched.New(sched.DefaultConfig(), mode),
 	}
+	s.fecEnc = fec.NewEncoder(e.fecCfg.Group, e.fecCfg.Parity, e.fecCfg.FlushAfter(), s.worstActiveLoss)
+	s.fecDec = fec.NewDecoder()
 	s.reorder = reorder.New(
 		func(pkt []byte, buf any) {
 			select {
@@ -183,13 +193,25 @@ func (s *session) sendData(owner *pktbuf.Buf, n int, scratch *pktbuf.Buf) {
 		return
 	}
 	seq := s.globalSeq.Add(1)
+	fecMode := s.sched.Mode() == sched.ModeFEC
 	var flags byte
 	if len(targets) > 1 {
 		flags = wire.FlagDuplicate
 	}
+	if fecMode {
+		flags |= wire.FlagFEC
+	}
 	const ih = pktbuf.TunOffset - wire.DataHeaderSize // inner header at 24
 	wire.PutDataHeader(owner[ih:pktbuf.TunOffset], seq, flags)
 	plaintext := owner[ih : pktbuf.TunOffset+n]
+
+	// FEC: copy the inner packet into the current group before sealing
+	// destroys the plaintext.
+	var group *fec.Group
+	if fecMode {
+		group = s.fecEnc.Add(seq, owner[pktbuf.TunOffset:pktbuf.TunOffset+n], targets[0], time.Now())
+	}
+
 	for _, pid := range targets {
 		out := owner
 		if len(targets) > 1 {
@@ -198,6 +220,90 @@ func (s *session) sendData(owner *pktbuf.Buf, n int, scratch *pktbuf.Buf) {
 			out = scratch
 		}
 		s.encryptAndSend(ep, pid, plaintext, out, n)
+	}
+	if group != nil {
+		s.sendParities(ep, group)
+	}
+}
+
+// worstActiveLoss feeds the FEC encoder's adaptive parity count.
+func (s *session) worstActiveLoss() float64 {
+	worst := 0.0
+	for i := range s.paths {
+		p := s.paths[i].Load()
+		if p == nil {
+			continue
+		}
+		if st := p.State(); st != path.Active && st != path.Degraded {
+			continue
+		}
+		if l := p.Metrics().Loss; l > worst {
+			worst = l
+		}
+	}
+	return worst
+}
+
+// sendParities transmits a closed FEC group's parity shards, placing
+// them on the active paths that carried the fewest of the group's data
+// shards (least loss correlation).
+func (s *session) sendParities(ep *noiseio.Epoch, g *fec.Group) {
+	if ep == nil || len(g.Parities) == 0 {
+		return
+	}
+	type cand struct {
+		id  byte
+		cnt uint16
+	}
+	var cands []cand
+	for i := range s.paths {
+		p := s.paths[i].Load()
+		if p != nil && p.State() == path.Active {
+			cands = append(cands, cand{id: p.ID, cnt: g.PathCounts[p.ID]})
+		}
+	}
+	if len(cands) == 0 {
+		return
+	}
+	sort.Slice(cands, func(i, j int) bool { return cands[i].cnt < cands[j].cnt })
+	for i := range g.Parities {
+		s.sendFECParity(ep, cands[i%len(cands)].id, &g.Parities[i])
+	}
+}
+
+// sendFECParity seals and transmits one parity shard.
+func (s *session) sendFECParity(ep *noiseio.Epoch, pid byte, par *fec.Parity) {
+	p := s.paths[pid].Load()
+	if p == nil {
+		return
+	}
+	buf := pktbuf.Get()
+	defer pktbuf.Put(buf)
+	const ih = pktbuf.TunOffset - wire.FECHeaderSize // FEC header at 24
+	const oh = pktbuf.DatagramOffset
+	par.Header.Marshal(buf[ih:pktbuf.TunOffset])
+	copy(buf[pktbuf.TunOffset:], par.Shard)
+	n := wire.FECHeaderSize + len(par.Shard)
+	ctr := ep.NextCounter(pid)
+	hdr := wire.Header{Type: wire.TypeFEC, PathID: pid, SessionID: ep.TxSessionID(), Counter: ctr}
+	hdr.Marshal(buf[oh:ih])
+	ct := ep.Seal(pid, ctr, buf[ih:ih], buf[ih:ih+n], buf[oh:ih])
+	if s.transmit(p, buf[oh:ih+len(ct)]) {
+		p.OnControlSent(n)
+	}
+}
+
+// injectRecovered pushes FEC-reconstructed packets into the reorder
+// buffer as if they had been received (dedup drops any that also arrive
+// late on the wire).
+func (s *session) injectRecovered(recs []fec.Recovered) {
+	for _, r := range recs {
+		if len(r.Pkt) > pktbuf.Size-pktbuf.RxIPOffset {
+			continue
+		}
+		buf := pktbuf.Get()
+		copy(buf[pktbuf.RxIPOffset:], r.Pkt)
+		s.reorder.Push(r.Seq, buf[pktbuf.RxIPOffset:pktbuf.RxIPOffset+len(r.Pkt)], buf)
 	}
 }
 
@@ -318,7 +424,7 @@ func (s *session) handleDatagram(ep *noiseio.Epoch, hdr wire.Header, datagram []
 			return false
 		}
 		// The server mirrors the client's scheduling mode for downlink
-		// traffic: duplicated packets mean the client runs redundant.
+		// traffic: duplicated packets mean redundant, FEC-flagged mean FEC.
 		if flags&wire.FlagDuplicate != 0 && s.eng.role == RoleServer {
 			s.lastDupUs.Store(nowUs)
 			if s.sched.Mode() != sched.ModeRedundant {
@@ -326,9 +432,31 @@ func (s *session) handleDatagram(ep *noiseio.Epoch, hdr wire.Header, datagram []
 				s.eng.log.Info("mirroring client redundant mode", "session", s.name)
 			}
 		}
+		var recovered []fec.Recovered
+		if flags&wire.FlagFEC != 0 {
+			if s.eng.role == RoleServer {
+				s.lastFecUs.Store(nowUs)
+				if s.sched.Mode() != sched.ModeFEC {
+					s.sched.SetMode(sched.ModeFEC)
+					s.eng.log.Info("mirroring client fec mode", "session", s.name)
+				}
+			}
+			// Retain a copy as a data shard before the reorder buffer
+			// takes ownership; this may complete a pending group.
+			recovered = s.fecDec.AddData(seq, ipPkt)
+		}
 		p.OnDataReceived(len(ipPkt), nowUs)
 		s.reorder.Push(seq, ipPkt, buf)
+		s.injectRecovered(recovered)
 		return true
+
+	case wire.TypeFEC:
+		fh, shard, err := wire.ParseFECHeader(pt)
+		if err != nil {
+			return false
+		}
+		p.OnDataReceived(len(pt), nowUs)
+		s.injectRecovered(s.fecDec.AddParity(fh, shard))
 
 	case wire.TypeProbe:
 		pr, err := wire.ParseProbe(pt)
@@ -408,7 +536,8 @@ func (s *session) startLoops() {
 	s.eng.goRun("flusher", s.flusherLoop)
 }
 
-// flusherLoop expires reorder gaps on a fine-grained timer.
+// flusherLoop expires reorder gaps and partial FEC groups on a
+// fine-grained timer.
 func (s *session) flusherLoop() {
 	t := time.NewTicker(5 * time.Millisecond)
 	defer t.Stop()
@@ -418,6 +547,11 @@ func (s *session) flusherLoop() {
 			return
 		case now := <-t.C:
 			s.reorder.FlushExpired(now)
+			if s.sched.Mode() == sched.ModeFEC {
+				if g := s.fecEnc.FlushExpired(now); g != nil {
+					s.sendParities(s.txEpoch.Load(), g)
+				}
+			}
 		}
 	}
 }
@@ -513,11 +647,20 @@ func (s *session) proberLoop() {
 				prevTx[i], prevRx[i] = txb, rxb
 			}
 		}
-		// Server: fall back to bonding when duplicated packets stop.
-		if s.eng.role == RoleServer && s.sched.Mode() == sched.ModeRedundant {
-			if last := s.lastDupUs.Load(); last > 0 && nowUs-last > 5e6 {
-				s.sched.SetMode(sched.ModeBonding)
-				s.eng.log.Info("client redundant mode ended", "session", s.name)
+		// Server: fall back to bonding when the client's mirrored mode
+		// (redundant duplicates / FEC flags) stops appearing.
+		if s.eng.role == RoleServer {
+			switch s.sched.Mode() {
+			case sched.ModeRedundant:
+				if last := s.lastDupUs.Load(); last > 0 && nowUs-last > 5e6 {
+					s.sched.SetMode(sched.ModeBonding)
+					s.eng.log.Info("client redundant mode ended", "session", s.name)
+				}
+			case sched.ModeFEC:
+				if last := s.lastFecUs.Load(); last > 0 && nowUs-last > 5e6 {
+					s.sched.SetMode(sched.ModeBonding)
+					s.eng.log.Info("client fec mode ended", "session", s.name)
+				}
 			}
 		}
 

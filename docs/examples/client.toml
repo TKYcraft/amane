@@ -4,7 +4,7 @@ private_key_file  = "/etc/amane/client.key"      # amane genkey で生成
 server            = "relay.example.com:51820"
 server_public_key = "REPLACE_WITH_SERVER_PUBLIC_KEY"
 tunnel_address    = "10.77.0.2/24"
-mode              = "bonding"                     # bonding | redundant
+mode              = "bonding"                     # bonding | redundant | fec
 # mtu = WAN経路MTUの最小値 - 68(サーバ側と同じ値にする)。例: 1460回線なら1392
 # mtu             = 1392
 # routes: トンネルに向ける宛先。
@@ -25,6 +25,12 @@ exclude = ["utun*", "awdl*", "llw*", "bridge*", "docker*", "veth*"]
 #
 # [[links.link]]
 # interface   = "en12"            # LTEドングル2
+
+# FECモード(mode = "fec")のチューニング(すべて省略可、既定値を表示)
+# [fec]
+# group    = 10   # グループあたりのデータパケット数 K (2..15)
+# parity   = 0    # パリティ数 R。0 = ロス率から自動 (1 + round(K×2×loss)、上限4)
+# flush_ms = 8    # K個貯まらなくてもこの時間でグループを締める(遅延上限)
 
 # チューニング(すべて省略可、既定値を表示)
 # [tuning]

@@ -68,6 +68,40 @@ func (t *Tuning) RekeyInterval() time.Duration {
 	return time.Duration(t.RekeySeconds) * time.Second
 }
 
+// FEC configures the Reed-Solomon mode (mode = "fec").
+type FEC struct {
+	Group   int `toml:"group"`    // data packets per group K (2..15)
+	Parity  int `toml:"parity"`   // parity packets R; 0 = adapt from loss
+	FlushMs int `toml:"flush_ms"` // close a partial group after this long
+}
+
+func (f *FEC) applyDefaults() {
+	if f.Group == 0 {
+		f.Group = 10
+	}
+	if f.FlushMs == 0 {
+		f.FlushMs = 8
+	}
+}
+
+func (f *FEC) validate() error {
+	if f.Group < 2 || f.Group > 15 {
+		return fmt.Errorf("fec.group %d out of range (2..15)", f.Group)
+	}
+	if f.Parity < 0 || f.Parity > f.Group {
+		return fmt.Errorf("fec.parity %d out of range (0..group)", f.Parity)
+	}
+	if f.FlushMs < 1 || f.FlushMs > 1000 {
+		return fmt.Errorf("fec.flush_ms %d out of range (1..1000)", f.FlushMs)
+	}
+	return nil
+}
+
+// FlushAfter returns the group flush timeout.
+func (f *FEC) FlushAfter() time.Duration {
+	return time.Duration(f.FlushMs) * time.Millisecond
+}
+
 // Link is one explicitly configured WAN interface.
 type Link struct {
 	Interface   string  `toml:"interface"`
@@ -97,6 +131,7 @@ type Client struct {
 	} `toml:"client"`
 	Links  Links  `toml:"links"`
 	Tuning Tuning `toml:"tuning"`
+	FEC    FEC    `toml:"fec"`
 
 	// Parsed values (not TOML fields).
 	PrivateKey   keys.Key       `toml:"-"`
@@ -135,6 +170,9 @@ type Server struct {
 	} `toml:"server"`
 	Peer   []Peer `toml:"peer"`
 	Tuning Tuning `toml:"tuning"`
+	// FEC tunes the server's downlink parity when it mirrors a client
+	// running in FEC mode.
+	FEC FEC `toml:"fec"`
 
 	PrivateKey keys.Key     `toml:"-"`
 	TunnelAddr netip.Prefix `toml:"-"`
@@ -208,6 +246,10 @@ func LoadClient(path string) (*Client, error) {
 		return nil, fmt.Errorf("no links: set links.auto = true or add [[links.link]] entries")
 	}
 	c.Tuning.applyDefaults()
+	c.FEC.applyDefaults()
+	if err := c.FEC.validate(); err != nil {
+		return nil, err
+	}
 	return &c, nil
 }
 
@@ -274,6 +316,10 @@ func LoadServer(path string) (*Server, error) {
 		}
 	}
 	s.Tuning.applyDefaults()
+	s.FEC.applyDefaults()
+	if err := s.FEC.validate(); err != nil {
+		return nil, err
+	}
 	return &s, nil
 }
 

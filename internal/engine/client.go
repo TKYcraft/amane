@@ -52,6 +52,7 @@ func StartClient(cfg *config.Client, log *slog.Logger) (*Engine, error) {
 		tun:        tun,
 		mtu:        cfg.Client.MTU,
 		tuning:     cfg.Tuning,
+		fecCfg:     cfg.FEC,
 		base:       time.Now(),
 		tunOut:     make(chan rxPkt, 4096),
 		ccfg:       cfg,

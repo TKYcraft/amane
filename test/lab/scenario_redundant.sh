@@ -13,15 +13,17 @@ lab_netem 1 rate 20mbit delay 12ms loss 15% limit 200
 lab_start_daemons
 lab_wait_up 2 20
 
-echo "== 200 pings through 15%+15% lossy links (redundant) =="
-nsc ping -i 0.05 -c 200 -q 10.77.0.1 | tee "$WORK/ping.txt" | grep -E "packets"
+echo "== 400 pings through 15%+15% lossy links (redundant) =="
+nsc ping -i 0.05 -c 400 -q 10.77.0.1 | tee "$WORK/ping.txt" | grep -E "packets"
 python3 - "$WORK/ping.txt" <<'EOF'
 import re, sys
 m = re.search(r"(\d+) packets transmitted, (\d+) received", open(sys.argv[1]).read())
 tx, rx = int(m.group(1)), int(m.group(2))
 loss = (tx - rx) / tx * 100
+# Round-trip theory ~4.4%; threshold is theory + ~2.6 sigma at n=400 to
+# keep CI stable while staying far below a single link's ~28%.
 print(f"loss: {loss:.1f}% (round-trip theory ~4.4% for duplicated 15%+15%; single link would be ~28%)")
-sys.exit(0 if loss <= 5 else 1)
+sys.exit(0 if loss <= 7 else 1)
 EOF
 
 echo "== dedup stats must show duplicates dropped =="

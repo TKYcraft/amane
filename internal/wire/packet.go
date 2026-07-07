@@ -33,6 +33,7 @@ const (
 	TypePathInit      byte = 5
 	TypePathAck       byte = 6
 	TypeClose         byte = 7
+	TypeFEC           byte = 8
 )
 
 // ProtocolVersion is carried in the handshake payload; both sides must match.

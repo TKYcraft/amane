@@ -63,9 +63,14 @@ func printStatus(st *ctl.Status) {
 					fmtBps(p.TxBps), fmtBps(p.RxBps), p.Weight*100)
 			}
 		}
-		fmt.Printf("REORDER  timeout_flush=%d  late_pass=%d  dup_drop=%d  buffer=%dpkt/%dms  drop_no_path=%d\n\n",
+		fmt.Printf("REORDER  timeout_flush=%d  late_pass=%d  dup_drop=%d  buffer=%dpkt/%dms  drop_no_path=%d\n",
 			s.Reorder.TimeoutFlush, s.Reorder.LatePass, s.Reorder.DupDrop,
 			s.Reorder.Held, s.Reorder.HeldOldestMs, s.DropNoPath)
+		if s.Mode == "fec" || s.FEC.ParitySent > 0 || s.FEC.Recovered > 0 {
+			fmt.Printf("FEC      parity_sent=%d  recovered=%d  failed=%d\n",
+				s.FEC.ParitySent, s.FEC.Recovered, s.FEC.Failed)
+		}
+		fmt.Println()
 	}
 }
 

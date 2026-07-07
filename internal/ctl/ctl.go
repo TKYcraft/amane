@@ -35,6 +35,13 @@ type ReorderStatus struct {
 	HeldOldestMs int64  `json:"held_oldest_ms"`
 }
 
+// FECStatus mirrors the fec encoder/decoder counters.
+type FECStatus struct {
+	ParitySent uint64 `json:"parity_sent"`
+	Recovered  uint64 `json:"recovered"`
+	Failed     uint64 `json:"failed"` // groups expired unreconstructable
+}
+
 // SessionStatus is one peer session.
 type SessionStatus struct {
 	Name        string        `json:"name"`
@@ -44,6 +51,7 @@ type SessionStatus struct {
 	Endpoint    string        `json:"endpoint,omitempty"` // client: server addr
 	Paths       []PathStatus  `json:"paths"`
 	Reorder     ReorderStatus `json:"reorder"`
+	FEC         FECStatus     `json:"fec"`
 	DropNoPath  uint64        `json:"drop_no_path"`
 }
 

@@ -23,22 +23,30 @@ type Mode int
 const (
 	ModeBonding Mode = iota
 	ModeRedundant
+	// ModeFEC schedules like bonding; the FEC layer (internal/fec) adds
+	// Reed-Solomon parity packets on top.
+	ModeFEC
 )
 
 func (m Mode) String() string {
-	if m == ModeRedundant {
+	switch m {
+	case ModeRedundant:
 		return "redundant"
+	case ModeFEC:
+		return "fec"
 	}
 	return "bonding"
 }
 
-// ParseMode parses "bonding" or "redundant".
+// ParseMode parses "bonding", "redundant", or "fec".
 func ParseMode(s string) (Mode, bool) {
 	switch s {
 	case "bonding", "":
 		return ModeBonding, true
 	case "redundant":
 		return ModeRedundant, true
+	case "fec":
+		return ModeFEC, true
 	}
 	return ModeBonding, false
 }

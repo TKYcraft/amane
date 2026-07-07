@@ -40,6 +40,7 @@ func StartServer(cfg *config.Server, log *slog.Logger) (*Engine, error) {
 		tun:    tun,
 		mtu:    cfg.Server.MTU,
 		tuning: cfg.Tuning,
+		fecCfg: cfg.FEC,
 		base:   time.Now(),
 		tunOut: make(chan rxPkt, 4096),
 		scfg:   cfg,

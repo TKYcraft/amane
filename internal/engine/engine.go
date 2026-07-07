@@ -35,6 +35,7 @@ type Engine struct {
 	tun    *tundev.Device
 	mtu    int
 	tuning config.Tuning
+	fecCfg config.FEC
 
 	base time.Time // monotonic clock anchor
 

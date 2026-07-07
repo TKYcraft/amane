@@ -5,6 +5,8 @@ go 1.25.5
 require (
 	github.com/BurntSushi/toml v1.6.0 // indirect
 	github.com/flynn/noise v1.1.0 // indirect
+	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
+	github.com/klauspost/reedsolomon v1.14.1 // indirect
 	github.com/vishvananda/netlink v1.3.1 // indirect
 	github.com/vishvananda/netns v0.0.5 // indirect
 	golang.org/x/crypto v0.53.0 // indirect
