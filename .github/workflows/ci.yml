@@ -43,3 +43,5 @@ jobs:
         run: sudo bash test/lab/scenario_bonding.sh
       - name: FEC loss recovery
         run: sudo bash test/lab/scenario_fec.sh
+      - name: PMTUD steering
+        run: sudo bash test/lab/scenario_pmtud.sh

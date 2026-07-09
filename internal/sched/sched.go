@@ -115,6 +115,7 @@ type pathState struct {
 	srtt     time.Duration
 	capped   bool // RTT-spread cap in effect
 	initHint float64
+	maxInner int // PMTUD limit on inner packet size; 0 = unrestricted
 }
 
 // Scheduler assigns packets to paths. Safe for concurrent use.
@@ -163,7 +164,18 @@ func (s *Scheduler) AddPath(id byte, initialBps float64, rejoin bool) {
 			pass = s.paths[i].pass
 		}
 	}
-	s.paths[id] = pathState{id: id, present: true, state: StateActive, weight: clamp(w, s.cfg.MinBps, s.cfg.MaxBps), pass: pass, initHint: initialBps}
+	// A rejoining path keeps its PMTUD restriction until re-probed.
+	keepMTU := s.paths[id].maxInner
+	s.paths[id] = pathState{id: id, present: true, state: StateActive, weight: clamp(w, s.cfg.MinBps, s.cfg.MaxBps), pass: pass, initHint: initialBps, maxInner: keepMTU}
+}
+
+// SetPathMTU restricts a path to inner packets of at most maxInner
+// bytes (0 removes the restriction). Set from PMTUD results; recorded
+// even for absent paths so AddPath preserves it when the path joins.
+func (s *Scheduler) SetPathMTU(id byte, maxInner int) {
+	s.mu.Lock()
+	s.paths[id].maxInner = maxInner
+	s.mu.Unlock()
 }
 
 // RemovePath drops a path from scheduling entirely.
@@ -260,7 +272,7 @@ func (s *Scheduler) Assign(pktLen int, out []byte) []byte {
 	if s.mode == ModeRedundant {
 		for i := range s.paths {
 			p := &s.paths[i]
-			if p.present && p.state != StateDown {
+			if p.present && p.state != StateDown && (p.maxInner == 0 || pktLen <= p.maxInner) {
 				out = append(out, p.id)
 			}
 		}
@@ -271,6 +283,9 @@ func (s *Scheduler) Assign(pktLen int, out []byte) []byte {
 		p := &s.paths[i]
 		if !p.present || p.state == StateDown {
 			continue
+		}
+		if p.maxInner != 0 && pktLen > p.maxInner {
+			continue // PMTUD: packet won't fit through this path
 		}
 		if best == nil || p.pass < best.pass {
 			best = p

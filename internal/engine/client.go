@@ -129,7 +129,11 @@ func (e *Engine) setupLinks() {
 				conn.Close()
 				continue
 			}
-			p = path.New(pid, ifname, hint)
+			mtuCeil := 0
+			if ifi, ierr := net.InterfaceByName(ifname); ierr == nil {
+				mtuCeil = ifi.MTU
+			}
+			p = path.New(pid, ifname, hint, mtuCeil)
 			p.SetEndpoint(e.serverAddr)
 			p.ResetLiveness(nowUs)
 			s.paths[pid].Store(p)
@@ -181,9 +185,12 @@ func (e *Engine) markLinkGone(p *path.Path) {
 	}
 }
 
-// swapConn installs a new socket for a path and starts its reader.
+// swapConn installs a new socket for a path and starts its reader. A
+// rebind means the underlying network may have changed, so MTU
+// discovery starts over.
 func (e *Engine) swapConn(p *path.Path, conn *net.UDPConn) {
 	e.sess.acked[p.ID].Store(false)
+	p.MTURestart()
 	if old := e.sess.conns[p.ID].Swap(conn); old != nil {
 		old.Close()
 	}

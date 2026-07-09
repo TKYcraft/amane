@@ -54,11 +54,11 @@ func printStatus(st *ctl.Status) {
 		fmt.Printf("SESSION  %s%s   state=%s  mode=%s  key_age=%.0fs\n",
 			s.Name, ep, s.State, s.Mode, s.EpochAgeSec)
 		if len(s.Paths) > 0 {
-			fmt.Printf("%-4s %-10s %-22s %-9s %-8s %-6s %-10s %-10s %s\n",
-				"PATH", "IF", "ENDPOINT", "STATE", "RTT", "LOSS", "TX", "RX", "WEIGHT")
+			fmt.Printf("%-4s %-10s %-22s %-9s %-5s %-8s %-6s %-10s %-10s %s\n",
+				"PATH", "IF", "ENDPOINT", "STATE", "MTU", "RTT", "LOSS", "TX", "RX", "WEIGHT")
 			for _, p := range s.Paths {
-				fmt.Printf("%-4d %-10s %-22s %-9s %-8s %-6s %-10s %-10s %.0f%%\n",
-					p.ID, orDash(p.IfName), orDash(p.Endpoint), p.State,
+				fmt.Printf("%-4d %-10s %-22s %-9s %-5s %-8s %-6s %-10s %-10s %.0f%%\n",
+					p.ID, orDash(p.IfName), orDash(p.Endpoint), p.State, fmtMTU(p.MTU),
 					fmtRTT(p.SRTTMs), fmtPct(p.LossPct),
 					fmtBps(p.TxBps), fmtBps(p.RxBps), p.Weight*100)
 			}
@@ -79,6 +79,16 @@ func orDash(s string) string {
 		return "-"
 	}
 	return s
+}
+
+func fmtMTU(v int) string {
+	switch {
+	case v == 0:
+		return "-"
+	case v < 0:
+		return "!"
+	}
+	return strconv.Itoa(v)
 }
 
 func fmtRTT(ms float64) string {

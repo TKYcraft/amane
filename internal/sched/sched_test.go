@@ -129,6 +129,50 @@ func TestRTTSpreadCap(t *testing.T) {
 	}
 }
 
+func TestMTUFilterBonding(t *testing.T) {
+	s := New(DefaultConfig(), ModeBonding)
+	s.AddPath(0, 0, false)
+	s.AddPath(1, 0, false)
+	s.SetPathMTU(1, 1232)
+	counts := assign(s, 200, 1400) // larger than path 1's limit
+	if counts[1] != 0 {
+		t.Fatalf("oversized packets sent through restricted path: %v", counts)
+	}
+	if counts[0] != 200 {
+		t.Fatalf("packets lost: %v", counts)
+	}
+	counts = assign(s, 2000, 1000) // fits everywhere
+	if counts[0] == 0 || counts[1] == 0 {
+		t.Fatalf("small packets not spread: %v", counts)
+	}
+}
+
+func TestMTUFilterRedundant(t *testing.T) {
+	s := New(DefaultConfig(), ModeRedundant)
+	s.AddPath(0, 0, false)
+	s.AddPath(1, 0, false)
+	s.SetPathMTU(1, 1232)
+	if out := s.Assign(1400, nil); len(out) != 1 || out[0] != 0 {
+		t.Fatalf("redundant ignored MTU filter: %v", out)
+	}
+	if out := s.Assign(1000, nil); len(out) != 2 {
+		t.Fatalf("small packet should use both: %v", out)
+	}
+}
+
+func TestMTUSurvivesRejoin(t *testing.T) {
+	s := New(DefaultConfig(), ModeBonding)
+	s.AddPath(0, 0, false)
+	s.AddPath(1, 0, false)
+	s.SetPathMTU(1, 1232)
+	s.SetState(1, StateDown)
+	s.AddPath(1, 0, true) // revive
+	counts := assign(s, 100, 1400)
+	if counts[1] != 0 {
+		t.Fatalf("MTU restriction lost across rejoin: %v", counts)
+	}
+}
+
 func TestSlowStartOnRejoin(t *testing.T) {
 	cfg := DefaultConfig()
 	s := New(cfg, ModeBonding)

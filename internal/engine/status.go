@@ -73,6 +73,7 @@ func (s *session) status() ctl.SessionStatus {
 			ID:      p.ID,
 			IfName:  p.IfName,
 			State:   p.State().String(),
+			MTU:     p.AppliedMTU(),
 			SRTTMs:  float64(m.SRTT.Microseconds()) / 1000,
 			LossPct: m.Loss * 100,
 			TxBps:   tx,

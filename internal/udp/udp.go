@@ -7,6 +7,7 @@
 package udp
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/netip"
@@ -76,7 +77,10 @@ func DialBound(ifname string, remote netip.AddrPort) (*net.UDPConn, netip.Addr, 
 	d := net.Dialer{
 		LocalAddr: net.UDPAddrFromAddrPort(netip.AddrPortFrom(local, 0)),
 		Control: func(network, address string, c syscall.RawConn) error {
-			return bindToInterface(c, ifname, remote.Addr().Is4())
+			if err := bindToInterface(c, ifname, remote.Addr().Is4()); err != nil {
+				return err
+			}
+			return setDontFragment(c)
 		},
 	}
 	network := "udp4"
@@ -90,11 +94,17 @@ func DialBound(ifname string, remote netip.AddrPort) (*net.UDPConn, netip.Addr, 
 	return conn.(*net.UDPConn), local, nil
 }
 
-// Listen opens the server's listen socket.
+// Listen opens the server's listen socket (DF set for path MTU
+// discovery).
 func Listen(addr string) (*net.UDPConn, error) {
-	ua, err := net.ResolveUDPAddr("udp", addr)
+	lc := net.ListenConfig{
+		Control: func(network, address string, c syscall.RawConn) error {
+			return setDontFragment(c)
+		},
+	}
+	pc, err := lc.ListenPacket(context.Background(), "udp", addr)
 	if err != nil {
 		return nil, err
 	}
-	return net.ListenUDP("udp", ua)
+	return pc.(*net.UDPConn), nil
 }

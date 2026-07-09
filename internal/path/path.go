@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/TKYcraft/amane/internal/pmtud"
 	"github.com/TKYcraft/amane/internal/sched"
 	"github.com/TKYcraft/amane/internal/wire"
 )
@@ -78,6 +79,14 @@ type Path struct {
 	rateTxBps atomic.Uint64
 	rateRxBps atomic.Uint64
 
+	// Path MTU discovery. discoveredMTU mirrors mtu.Discovered() for
+	// status (0 unknown, -1 dead, else wire bytes); maxInner is the
+	// derived largest inner IP packet this path can carry (0 = no
+	// restriction).
+	mtu           *pmtud.Prober
+	discoveredMTU atomic.Int64
+	maxInner      atomic.Int64
+
 	mu sync.Mutex
 	// probe bookkeeping (under mu)
 	probeSeq      uint32
@@ -98,11 +107,55 @@ type Path struct {
 	probesSinceDown int
 }
 
-// New creates a path in Probing state.
-func New(id byte, ifname string, initialMbps float64) *Path {
-	p := &Path{ID: id, IfName: ifname, InitialMbps: initialMbps}
+// New creates a path in Probing state. mtuCeil bounds MTU discovery
+// (typically the local interface MTU; 0 picks a 1500 default).
+func New(id byte, ifname string, initialMbps float64, mtuCeil int) *Path {
+	if mtuCeil <= 0 {
+		mtuCeil = 1500
+	}
+	p := &Path{ID: id, IfName: ifname, InitialMbps: initialMbps, mtu: pmtud.New(mtuCeil)}
 	p.state.Store(int32(Probing))
 	return p
+}
+
+// MTUTick advances MTU discovery one probe interval; when send is true
+// the engine must transmit a probe of the returned wire size.
+func (p *Path) MTUTick() (id uint32, size int, send bool) { return p.mtu.Tick() }
+
+// MTUAck feeds a returned probe ack into discovery.
+func (p *Path) MTUAck(id uint32) { p.mtu.OnAck(id) }
+
+// MTUSendError reports a probe that failed to send (EMSGSIZE etc).
+func (p *Path) MTUSendError(id uint32) { p.mtu.OnSendError(id) }
+
+// MTURestart discards MTU state after a rebind or endpoint change.
+func (p *Path) MTURestart() {
+	p.mtu.Restart()
+	p.discoveredMTU.Store(0)
+	p.maxInner.Store(0)
+}
+
+// MTUDiscovered returns the prober's current result (0 unknown, -1 dead,
+// else wire MTU).
+func (p *Path) MTUDiscovered() int { return p.mtu.Discovered() }
+
+// SetMTU records the applied discovery result for status/scheduling.
+func (p *Path) SetMTU(wire int, maxInner int) {
+	p.discoveredMTU.Store(int64(wire))
+	p.maxInner.Store(int64(maxInner))
+}
+
+// AppliedMTU returns the recorded wire MTU (status display).
+func (p *Path) AppliedMTU() int { return int(p.discoveredMTU.Load()) }
+
+// MaxInner returns the largest inner packet this path may carry
+// (0 = unrestricted).
+func (p *Path) MaxInner() int { return int(p.maxInner.Load()) }
+
+// TouchAlive refreshes liveness without touching the loss-accounting
+// counters (MTU probes/acks are excluded from those by design).
+func (p *Path) TouchAlive(nowUs int64) {
+	p.lastAliveUs.Store(nowUs)
 }
 
 // State returns the current liveness state.

@@ -19,6 +19,7 @@ type PathStatus struct {
 	IfName   string  `json:"ifname,omitempty"`
 	Endpoint string  `json:"endpoint,omitempty"`
 	State    string  `json:"state"`
+	MTU      int     `json:"mtu"` // discovered wire MTU (0 unknown, -1 dead)
 	SRTTMs   float64 `json:"srtt_ms"`
 	LossPct  float64 `json:"loss_pct"`
 	TxBps    float64 `json:"tx_bps"`

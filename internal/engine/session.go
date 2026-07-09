@@ -255,12 +255,19 @@ func (s *session) sendParities(ep *noiseio.Epoch, g *fec.Group) {
 		id  byte
 		cnt uint16
 	}
+	shardLen := len(g.Parities[0].Shard)
 	var cands []cand
 	for i := range s.paths {
 		p := s.paths[i].Load()
-		if p != nil && p.State() == path.Active {
-			cands = append(cands, cand{id: p.ID, cnt: g.PathCounts[p.ID]})
+		if p == nil || p.State() != path.Active {
+			continue
 		}
+		// PMTUD: a parity packet is the same wire size as a data packet
+		// carrying an inner packet of the shard's length.
+		if mi := p.MaxInner(); mi != 0 && shardLen > mi {
+			continue
+		}
+		cands = append(cands, cand{id: p.ID, cnt: g.PathCounts[p.ID]})
 	}
 	if len(cands) == 0 {
 		return
@@ -413,8 +420,10 @@ func (s *session) handleDatagram(ep *noiseio.Epoch, hdr wire.Header, datagram []
 		}
 	}
 	// Roaming: any authenticated packet fixes the endpoint (server side).
+	// The network changed, so the old MTU discovery no longer applies.
 	if s.eng.role == RoleServer && src.IsValid() && p.Endpoint() != src {
 		p.SetEndpoint(src)
+		p.MTURestart()
 	}
 
 	switch hdr.Type {
@@ -488,6 +497,27 @@ func (s *session) handleDatagram(ep *noiseio.Epoch, hdr wire.Header, datagram []
 			}
 		}
 
+	case wire.TypeMTUProbe:
+		// The probe's arrival at this size is the discovery signal;
+		// answer with a small ack. Excluded from loss accounting on
+		// both sides (probes are expected to be lost while searching).
+		id, size, err := wire.ParseMTUPayload(pt)
+		if err != nil {
+			return false
+		}
+		p.TouchAlive(nowUs)
+		if tx := s.txEpoch.Load(); tx != nil {
+			s.sendMTUAck(tx, hdr.PathID, id, size)
+		}
+
+	case wire.TypeMTUAck:
+		id, _, err := wire.ParseMTUPayload(pt)
+		if err != nil {
+			return false
+		}
+		p.TouchAlive(nowUs)
+		p.MTUAck(id)
+
 	case wire.TypeClose:
 		s.eng.log.Info("peer sent close", "session", s.name, "path", hdr.PathID)
 		if s.eng.role == RoleClient {
@@ -501,13 +531,94 @@ func (s *session) handleDatagram(ep *noiseio.Epoch, hdr wire.Header, datagram []
 }
 
 // addServerPath registers a new path learned from an authenticated
-// PathInit.
+// PathInit. The server can't know the true egress interface MTU per
+// client path, so discovery uses the 1500 default ceiling.
 func (s *session) addServerPath(pid byte, src netip.AddrPort) *path.Path {
-	p := path.New(pid, "", 0)
+	p := path.New(pid, "", 0, 0)
 	p.SetEndpoint(src)
 	p.ResetLiveness(s.eng.nowUs())
 	s.paths[pid].Store(p)
 	return p
+}
+
+// sendMTUAck answers an MTU probe (uncounted; see TypeMTUProbe case).
+func (s *session) sendMTUAck(ep *noiseio.Epoch, pid byte, id uint32, size uint16) {
+	p := s.paths[pid].Load()
+	if p == nil {
+		return
+	}
+	var b [wire.HeaderSize + wire.MTUPayloadSize + wire.TagSize]byte
+	var payload [wire.MTUPayloadSize]byte
+	wire.PutMTUPayload(payload[:], id, size)
+	ctr := ep.NextCounter(pid)
+	hdr := wire.Header{Type: wire.TypeMTUAck, PathID: pid, SessionID: ep.TxSessionID(), Counter: ctr}
+	hdr.Marshal(b[:wire.HeaderSize])
+	ct := ep.Seal(pid, ctr, b[wire.HeaderSize:wire.HeaderSize], payload[:], b[:wire.HeaderSize])
+	s.transmit(p, b[:wire.HeaderSize+len(ct)])
+}
+
+// sendMTUProbe transmits one padded discovery probe of the given wire
+// size (uncounted in loss accounting). Send failures (EMSGSIZE from the
+// local interface) are fed back as immediate probe failures.
+func (s *session) sendMTUProbe(ep *noiseio.Epoch, p *path.Path, id uint32, wireMTU int) {
+	v4 := true
+	if e := p.Endpoint(); e.IsValid() {
+		v4 = e.Addr().Is4()
+	}
+	n := wire.ProbePlaintextLen(wireMTU, v4)
+	if n < wire.MTUPayloadSize || n > pktbuf.Size-pktbuf.TunOffset {
+		p.MTUSendError(id)
+		return
+	}
+	buf := pktbuf.Get()
+	defer pktbuf.Put(buf)
+	const oh = pktbuf.DatagramOffset
+	const pt = oh + wire.HeaderSize // plaintext start
+	plaintext := buf[pt : pt+n]
+	wire.PutMTUPayload(plaintext, id, uint16(wireMTU))
+	clear(plaintext[wire.MTUPayloadSize:]) // pooled buffer: don't leak old bytes
+	ctr := ep.NextCounter(p.ID)
+	hdr := wire.Header{Type: wire.TypeMTUProbe, PathID: p.ID, SessionID: ep.TxSessionID(), Counter: ctr}
+	hdr.Marshal(buf[oh:pt])
+	ct := ep.Seal(p.ID, ctr, buf[pt:pt], plaintext, buf[oh:pt])
+	if !s.transmit(p, buf[oh:pt+len(ct)]) {
+		p.MTUSendError(id)
+	}
+}
+
+// applyPathMTU propagates a changed discovery result to the path,
+// the scheduler, and the operator (log).
+func (s *session) applyPathMTU(p *path.Path, wireMTU int) {
+	maxInner := 0
+	switch {
+	case wireMTU == -1:
+		// Even the floor probe fails: keep control traffic, block data.
+		maxInner = 1
+	case wireMTU > 0:
+		v4 := true
+		if e := p.Endpoint(); e.IsValid() {
+			v4 = e.Addr().Is4()
+		}
+		maxInner = wire.MaxInnerForWireMTU(wireMTU, v4)
+		if maxInner < 1 {
+			maxInner = 1
+		}
+	}
+	p.SetMTU(wireMTU, maxInner)
+	s.sched.SetPathMTU(p.ID, maxInner)
+	switch {
+	case wireMTU == -1:
+		s.eng.log.Warn("path mtu: dead (even 576B probes fail); data avoids this path",
+			"session", s.name, "path", p.ID, "if", p.IfName)
+	case maxInner > 0 && maxInner < s.eng.mtu:
+		s.eng.log.Warn("path mtu below tunnel mtu; large packets avoid this path",
+			"session", s.name, "path", p.ID, "if", p.IfName,
+			"wire_mtu", wireMTU, "usable_inner", maxInner, "tunnel_mtu", s.eng.mtu)
+	case wireMTU > 0:
+		s.eng.log.Info("path mtu discovered",
+			"session", s.name, "path", p.ID, "if", p.IfName,
+			"wire_mtu", wireMTU, "usable_inner", maxInner)
+	}
 }
 
 // admitPath moves a path into Active and hands it to the scheduler.
@@ -569,6 +680,7 @@ func (s *session) proberLoop() {
 	tick := 0
 	prevTx := make([]uint64, wire.MaxPaths)
 	prevRx := make([]uint64, wire.MaxPaths)
+	prevMTU := make([]int, wire.MaxPaths)
 	// badTicks counts consecutive over-threshold quality checks so that
 	// the transient loss of AIMD convergence doesn't degrade a path the
 	// scheduler is still learning about.
@@ -601,6 +713,19 @@ func (s *session) proberLoop() {
 			// Client: retry PathInit until acked.
 			if s.eng.role == RoleClient && ep != nil && !s.acked[i].Load() && tick%5 == 0 {
 				s.sendPathInit(ep, p.ID)
+			}
+
+			// Path MTU discovery on live paths.
+			if st == path.Active || st == path.Degraded {
+				if ep != nil {
+					if id, size, ok := p.MTUTick(); ok {
+						s.sendMTUProbe(ep, p, id, size)
+					}
+				}
+				if d := p.MTUDiscovered(); d != prevMTU[i] {
+					prevMTU[i] = d
+					s.applyPathMTU(p, d)
+				}
 			}
 
 			// Death: probe silence beyond the dead interval.

@@ -29,3 +29,13 @@ func bindToInterface(c syscall.RawConn, ifname string, v4 bool) error {
 	}
 	return serr
 }
+
+// setDontFragment enables DF on outgoing packets so amane's per-path
+// MTU discovery sees real path behavior. Best-effort: options for the
+// non-matching address family are ignored.
+func setDontFragment(c syscall.RawConn) error {
+	return c.Control(func(fd uintptr) {
+		_ = unix.SetsockoptInt(int(fd), unix.IPPROTO_IP, unix.IP_DONTFRAG, 1)
+		_ = unix.SetsockoptInt(int(fd), unix.IPPROTO_IPV6, unix.IPV6_DONTFRAG, 1)
+	})
+}
