@@ -17,6 +17,7 @@ import (
 	"github.com/TKYcraft/amane/internal/keys"
 	"github.com/TKYcraft/amane/internal/noiseio"
 	"github.com/TKYcraft/amane/internal/pktbuf"
+	"github.com/TKYcraft/amane/internal/pmtunotify"
 	"github.com/TKYcraft/amane/internal/tundev"
 )
 
@@ -41,6 +42,11 @@ type Engine struct {
 
 	// tunOut carries decrypted inner packets to the TUN writer.
 	tunOut chan rxPkt
+
+	// notifyTooBig is the operator toggle for ICMP PTB generation.
+	notifyTooBig bool
+	// ptbLimiter rate-limits per inner-source ICMP replies.
+	ptbLimiter *pmtunotify.Limiter
 
 	// client
 	ccfg       *config.Client

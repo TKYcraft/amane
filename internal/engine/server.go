@@ -11,6 +11,7 @@ import (
 	"github.com/TKYcraft/amane/internal/noiseio"
 	"github.com/TKYcraft/amane/internal/pktbuf"
 	"github.com/TKYcraft/amane/internal/platform"
+	"github.com/TKYcraft/amane/internal/pmtunotify"
 	"github.com/TKYcraft/amane/internal/sched"
 	"github.com/TKYcraft/amane/internal/tundev"
 	"github.com/TKYcraft/amane/internal/udp"
@@ -35,21 +36,23 @@ func StartServer(cfg *config.Server, log *slog.Logger) (*Engine, error) {
 	}
 
 	e := &Engine{
-		log:    log,
-		role:   RoleServer,
-		tun:    tun,
-		mtu:    cfg.Server.MTU,
-		tuning: cfg.Tuning,
-		fecCfg: cfg.FEC,
-		base:   time.Now(),
-		tunOut: make(chan rxPkt, 4096),
-		scfg:   cfg,
-		conn:   conn,
-		peers:  make(map[keys.Key]*session),
-		byIP:   make(map[netip.Addr]*session),
-		byRxID: make(map[uint32]epochRef),
-		hsGate: newTokenBucket(20, 10),
-		stop:   make(chan struct{}),
+		log:          log,
+		role:         RoleServer,
+		tun:          tun,
+		mtu:          cfg.Server.MTU,
+		tuning:       cfg.Tuning,
+		fecCfg:       cfg.FEC,
+		base:         time.Now(),
+		tunOut:       make(chan rxPkt, 4096),
+		notifyTooBig: cfg.Tuning.NotifyPTB(),
+		ptbLimiter:   pmtunotify.NewLimiter(4, 8),
+		scfg:         cfg,
+		conn:         conn,
+		peers:        make(map[keys.Key]*session),
+		byIP:         make(map[netip.Addr]*session),
+		byRxID:       make(map[uint32]epochRef),
+		hsGate:       newTokenBucket(20, 10),
+		stop:         make(chan struct{}),
 	}
 	for i := range cfg.Peer {
 		p := &cfg.Peer[i]

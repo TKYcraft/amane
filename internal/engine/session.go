@@ -13,6 +13,7 @@ import (
 	"github.com/TKYcraft/amane/internal/noiseio"
 	"github.com/TKYcraft/amane/internal/path"
 	"github.com/TKYcraft/amane/internal/pktbuf"
+	"github.com/TKYcraft/amane/internal/pmtunotify"
 	"github.com/TKYcraft/amane/internal/reorder"
 	"github.com/TKYcraft/amane/internal/sched"
 	"github.com/TKYcraft/amane/internal/wire"
@@ -65,6 +66,7 @@ type session struct {
 
 	dropNoPath  atomic.Uint64
 	dropNoEpoch atomic.Uint64
+	icmpPTBSent atomic.Uint64
 
 	started atomic.Bool // per-session goroutines launched
 }
@@ -190,6 +192,11 @@ func (s *session) sendData(owner *pktbuf.Buf, n int, scratch *pktbuf.Buf) {
 	targets := s.sched.Assign(n, idbuf[:0])
 	if len(targets) == 0 {
 		s.dropNoPath.Add(1)
+		if s.eng.notifyTooBig {
+			if mtu := s.sched.MinUsableInner(); mtu > 0 && mtu < n {
+				s.sendPTB(owner[pktbuf.TunOffset:pktbuf.TunOffset+n], mtu)
+			}
+		}
 		return
 	}
 	seq := s.globalSeq.Add(1)
@@ -224,6 +231,66 @@ func (s *session) sendData(owner *pktbuf.Buf, n int, scratch *pktbuf.Buf) {
 	if group != nil {
 		s.sendParities(ep, group)
 	}
+}
+
+// sendPTB synthesizes an ICMP Fragmentation Needed / Packet Too Big
+// reply for an inner packet the scheduler just dropped as oversized, and
+// hands it to the TUN writer so the kernel delivers it to the inner-TCP
+// sender. Rate-limited per inner source to prevent amplification.
+//
+// The reply's source address is the inner packet's own destination.
+// A tunnel endpoint has no "router IP" of its own in the inner subnet,
+// and using the local TUN address can land as self-to-self (kernel
+// rejects the error delivery). The destination's address is the one
+// address guaranteed to make RP filters pass and the kernel's error
+// path match this ICMP to the outstanding flow on either side.
+func (s *session) sendPTB(inner []byte, mtu int) {
+	if len(inner) < 1 || s.eng.ptbLimiter == nil {
+		return
+	}
+	src, ok := innerSrc(inner)
+	if !ok {
+		return
+	}
+	dst, ok := innerDst(inner)
+	if !ok {
+		return
+	}
+	if !s.eng.ptbLimiter.Allow(src, time.Now()) {
+		return
+	}
+	buf := pktbuf.Get()
+	n, built := pmtunotify.BuildPTB(buf[pktbuf.RxIPOffset:], inner, dst, mtu, s.eng.mtu)
+	if !built {
+		pktbuf.Put(buf)
+		return
+	}
+	select {
+	case s.eng.tunOut <- rxPkt{buf: buf, pkt: buf[pktbuf.RxIPOffset : pktbuf.RxIPOffset+n]}:
+		s.icmpPTBSent.Add(1)
+	default:
+		pktbuf.Put(buf) // writer overloaded: drop silently
+	}
+}
+
+// innerSrc extracts the source address of an inner IP packet.
+func innerSrc(ip []byte) (netip.Addr, bool) {
+	if len(ip) < 1 {
+		return netip.Addr{}, false
+	}
+	switch ip[0] >> 4 {
+	case 4:
+		if len(ip) < 20 {
+			return netip.Addr{}, false
+		}
+		return netip.AddrFrom4([4]byte(ip[12:16])), true
+	case 6:
+		if len(ip) < 40 {
+			return netip.Addr{}, false
+		}
+		return netip.AddrFrom16([16]byte(ip[8:24])).Unmap(), true
+	}
+	return netip.Addr{}, false
 }
 
 // worstActiveLoss feeds the FEC encoder's adaptive parity count.

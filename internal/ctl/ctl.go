@@ -54,6 +54,7 @@ type SessionStatus struct {
 	Reorder     ReorderStatus `json:"reorder"`
 	FEC         FECStatus     `json:"fec"`
 	DropNoPath  uint64        `json:"drop_no_path"`
+	IcmpPtbSent uint64        `json:"icmp_ptb_sent"`
 }
 
 // Status is the full daemon state.

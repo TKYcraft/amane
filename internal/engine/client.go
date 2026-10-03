@@ -13,6 +13,7 @@ import (
 	"github.com/TKYcraft/amane/internal/path"
 	"github.com/TKYcraft/amane/internal/pktbuf"
 	"github.com/TKYcraft/amane/internal/platform"
+	"github.com/TKYcraft/amane/internal/pmtunotify"
 	"github.com/TKYcraft/amane/internal/tundev"
 	"github.com/TKYcraft/amane/internal/udp"
 	"github.com/TKYcraft/amane/internal/wire"
@@ -47,19 +48,21 @@ func StartClient(cfg *config.Client, log *slog.Logger) (*Engine, error) {
 	}
 
 	e := &Engine{
-		log:        log,
-		role:       RoleClient,
-		tun:        tun,
-		mtu:        cfg.Client.MTU,
-		tuning:     cfg.Tuning,
-		fecCfg:     cfg.FEC,
-		base:       time.Now(),
-		tunOut:     make(chan rxPkt, 4096),
-		ccfg:       cfg,
-		serverAddr: serverAddr,
-		hsRespCh:   make(chan hsResp, 4),
-		rekeyNow:   make(chan struct{}, 1),
-		stop:       make(chan struct{}),
+		log:          log,
+		role:         RoleClient,
+		tun:          tun,
+		mtu:          cfg.Client.MTU,
+		tuning:       cfg.Tuning,
+		fecCfg:       cfg.FEC,
+		base:         time.Now(),
+		tunOut:       make(chan rxPkt, 4096),
+		notifyTooBig: cfg.Tuning.NotifyPTB(),
+		ptbLimiter:   pmtunotify.NewLimiter(4, 8),
+		ccfg:         cfg,
+		serverAddr:   serverAddr,
+		hsRespCh:     make(chan hsResp, 4),
+		rekeyNow:     make(chan struct{}, 1),
+		stop:         make(chan struct{}),
 	}
 	e.sess = newSession(e, "server", cfg.ServerPubKey, cfg.PSK, cfg.SchedMode)
 

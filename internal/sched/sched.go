@@ -178,6 +178,31 @@ func (s *Scheduler) SetPathMTU(id byte, maxInner int) {
 	s.mu.Unlock()
 }
 
+// MinUsableInner returns the smallest discovered maxInner across the
+// present, non-Down paths — the next-hop MTU an inner-TCP endpoint
+// should drop to for any single bonding segment to fit. Paths without a
+// discovered restriction (maxInner == 0) and dead paths (maxInner == 1,
+// set by the session when every probe size fails) are excluded. Returns
+// 0 when no usable candidate exists.
+func (s *Scheduler) MinUsableInner() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	min := 0
+	for i := range s.paths {
+		p := &s.paths[i]
+		if !p.present || p.state == StateDown {
+			continue
+		}
+		if p.maxInner <= 1 {
+			continue
+		}
+		if min == 0 || p.maxInner < min {
+			min = p.maxInner
+		}
+	}
+	return min
+}
+
 // RemovePath drops a path from scheduling entirely.
 func (s *Scheduler) RemovePath(id byte) {
 	s.mu.Lock()

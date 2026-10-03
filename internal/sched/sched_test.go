@@ -173,6 +173,35 @@ func TestMTUSurvivesRejoin(t *testing.T) {
 	}
 }
 
+func TestMinUsableInner(t *testing.T) {
+	s := New(DefaultConfig(), ModeBonding)
+	if got := s.MinUsableInner(); got != 0 {
+		t.Fatalf("empty scheduler: got %d, want 0", got)
+	}
+	s.AddPath(0, 0, false)
+	s.AddPath(1, 0, false)
+	s.AddPath(2, 0, false)
+	if got := s.MinUsableInner(); got != 0 {
+		t.Fatalf("no PMTU learned: got %d, want 0 (none restricted)", got)
+	}
+	s.SetPathMTU(0, 1232)
+	s.SetPathMTU(1, 1300)
+	// path 2 remains unrestricted; it still shouldn't drag the minimum down.
+	if got := s.MinUsableInner(); got != 1232 {
+		t.Fatalf("got %d, want 1232", got)
+	}
+	// A dead path (maxInner=1) is excluded.
+	s.SetPathMTU(0, 1)
+	if got := s.MinUsableInner(); got != 1300 {
+		t.Fatalf("dead path not excluded: got %d, want 1300", got)
+	}
+	// A Down path is excluded.
+	s.SetState(1, StateDown)
+	if got := s.MinUsableInner(); got != 0 {
+		t.Fatalf("down path still counted: got %d, want 0", got)
+	}
+}
+
 func TestSlowStartOnRejoin(t *testing.T) {
 	cfg := DefaultConfig()
 	s := New(cfg, ModeBonding)
