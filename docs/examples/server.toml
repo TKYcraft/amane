@@ -23,3 +23,15 @@ tunnel_ip  = "10.77.0.2"
 # name       = "field-unit-2"
 # public_key = "..."
 # tunnel_ip  = "10.77.0.3"
+
+# チューニング(すべて省略可、既定値を表示)。クライアント側と独立に設定可能。
+# [tuning]
+# probe_interval_ms    = 200      # プローブ/キープアライブ間隔
+# max_reorder_delay_ms = 100      # リオーダ待ちの上限
+# dead_interval_probes = 5        # この回数分無応答でパスをdown判定
+# degrade_loss_pct     = 10       # このロス率超過が持続するとdegraded
+# degrade_rtt_ms       = 1000
+# rekey_seconds        = 120      # 鍵ローテーション周期
+# notify_too_big       = true     # ダウンリンクで大きすぎる内側パケットを
+                                  # どのパスにも乗せられないときに ICMP Frag Needed
+                                  # を内側TCPへ返す(PMTUブラックホール対策、既定有効)
