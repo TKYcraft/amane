@@ -45,3 +45,5 @@ jobs:
         run: sudo bash test/lab/scenario_fec.sh
       - name: PMTUD steering
         run: sudo bash test/lab/scenario_pmtud.sh
+      - name: ICMP PTB blackhole relief
+        run: sudo bash test/lab/scenario_ptb.sh
