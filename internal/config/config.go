@@ -25,6 +25,11 @@ type Tuning struct {
 	DegradeLossPct     float64 `toml:"degrade_loss_pct"`
 	DegradeRTTMs       int     `toml:"degrade_rtt_ms"`
 	RekeySeconds       int     `toml:"rekey_seconds"`
+	// NotifyTooBig toggles synthesizing ICMP Fragmentation Needed /
+	// Packet Too Big replies to the inner-TCP sender when the scheduler
+	// cannot carry a packet on any path (PMTU-blackhole relief). Default
+	// enabled; set `notify_too_big = false` to disable.
+	NotifyTooBig *bool `toml:"notify_too_big"`
 }
 
 func (t *Tuning) applyDefaults() {
@@ -66,6 +71,14 @@ func (t *Tuning) DeadInterval() time.Duration {
 // RekeyInterval returns the handshake rotation period.
 func (t *Tuning) RekeyInterval() time.Duration {
 	return time.Duration(t.RekeySeconds) * time.Second
+}
+
+// NotifyPTB reports whether ICMP PTB generation is enabled; unset means on.
+func (t *Tuning) NotifyPTB() bool {
+	if t.NotifyTooBig == nil {
+		return true
+	}
+	return *t.NotifyTooBig
 }
 
 // FEC configures the Reed-Solomon mode (mode = "fec").

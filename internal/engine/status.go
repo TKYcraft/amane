@@ -36,10 +36,11 @@ func (e *Engine) Status() ctl.Status {
 
 func (s *session) status() ctl.SessionStatus {
 	out := ctl.SessionStatus{
-		Name:       s.name,
-		State:      "connecting",
-		Mode:       s.sched.Mode().String(),
-		DropNoPath: s.dropNoPath.Load() + s.dropNoEpoch.Load(),
+		Name:        s.name,
+		State:       "connecting",
+		Mode:        s.sched.Mode().String(),
+		DropNoPath:  s.dropNoPath.Load() + s.dropNoEpoch.Load(),
+		IcmpPtbSent: s.icmpPTBSent.Load(),
 	}
 	if ep := s.txEpoch.Load(); ep != nil {
 		out.State = "up"

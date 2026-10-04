@@ -40,3 +40,6 @@ exclude = ["utun*", "awdl*", "llw*", "bridge*", "docker*", "veth*"]
 # degrade_loss_pct     = 10       # このロス率超過が持続するとdegraded
 # degrade_rtt_ms       = 1000
 # rekey_seconds        = 120      # 鍵ローテーション周期
+# notify_too_big       = true     # 大きすぎる内側パケットをどのパスにも乗せられない
+                                  # ときに ICMP Frag Needed / Packet Too Big を内側TCPへ
+                                  # 返す(PMTUブラックホール対策、既定有効)
