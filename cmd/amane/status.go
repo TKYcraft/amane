@@ -58,7 +58,8 @@ func printStatus(st *ctl.Status) {
 				"PATH", "IF", "WAN", "STATE", "MTU", "RTT", "LOSS", "TX", "RX", "WEIGHT")
 			for _, p := range s.Paths {
 				fmt.Printf("%-4d %-10s %-40s %-9s %-5s %-8s %-6s %-10s %-10s %.0f%%\n",
-					p.ID, orDash(p.IfName), fmtWAN(p.WANIP, p.ASN, p.ASOrg), p.State, fmtMTU(p.MTU),
+					p.ID, orDash(p.IfName), fmtWAN(p.WANIP, p.ASN, p.ASOrg, p.Endpoint),
+					p.State, fmtMTU(p.MTU),
 					fmtRTT(p.SRTTMs), fmtPct(p.LossPct),
 					fmtBps(p.TxBps), fmtBps(p.RxBps), p.Weight*100)
 			}
@@ -105,12 +106,14 @@ func fmtPct(p float64) string {
 	return fmt.Sprintf("%.1f%%", p)
 }
 
-// fmtWAN renders the per-link public-IP/ASN annotation. Empty IP (lookup
-// disabled or not yet complete) collapses to a dash. Long org names are
-// truncated so the column keeps a predictable width.
-func fmtWAN(ip string, asn int, org string) string {
+// fmtWAN renders the per-link public-IP/ASN annotation. If the WAN
+// lookup has not populated this path (server role, startup window, or
+// network error), falls back to the per-path endpoint — on the server
+// that is the peer's authenticated source address, which is useful by
+// itself. Long org names are truncated to keep the column width stable.
+func fmtWAN(ip string, asn int, org, endpoint string) string {
 	if ip == "" {
-		return "-"
+		return orDash(endpoint)
 	}
 	parts := ip
 	if asn > 0 {
