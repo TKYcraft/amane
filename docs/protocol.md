@@ -161,18 +161,58 @@ L3トンネルなので順序保証はしない方針(「待ちすぎない」):
 
 ## DiffServ マーキング(DSCP)
 
-外側UDPパケットの ToS / Traffic Class 上位6bitに DSCP code point を乗せる。
-`[client] dscp = "ef"` (または `[server] dscp = "ef"`) で有効化。シンボル名
-(RFC 2474/4594: ef/af11-43/cs0-7/be/voice-admit)または 0..63 整数で指定。
+外側UDPパケットの IPヘッダ ToS / Traffic Class バイトの上位6bitに DSCP
+code point を乗せる。`[client] dscp = "ef"` または `[server] dscp = "ef"` で
+有効化。シンボル名(RFC 2474/4594)または 0..63 の整数で指定。既定 `be`。
 
-- 実装は socket オプション: Linux `IP_TOS`/`IPV6_TCLASS`, macOS 同名。
-  `IP_TOS = dscp << 2`。全パス socket と server listen socket に同じ値を適用。
-- 効果は経路依存: 日本の 4G/5G 一般APNは P-GW/UPF で剥がす or 無視するのが通例。
-  自宅ルータ・エンプラ閉域・一部 ISP のコアでは尊重される。Discord の
-  「高いパケット優先度を有効化」と同じ仕組み・同じ限界。
-- 悪影響の可能性: 稀に ISP 側が「ユーザ EF 不許可」として shaping キューに
-  落とす。本番投入前に実経路で切り替え比較推奨。
-- 既定は 0(BE)でソケット側は何も設定しない。
+### 実装
+- socket オプション 1 本: Linux `IP_TOS` / `IPV6_TCLASS`、macOS 同名。
+  実際にバイトに書く値は `dscp << 2`(下位2bitはECN用)。
+- 全パスの outer UDP socket(クライアント per-path)と server listen socket に
+  同じ値を適用。fast path のオーバーヘッドは無し。
+
+### 効くか効かないか
+
+経路上の各ノード(ルータ/スイッチ/ISPコア)が「DSCPを見て優先キューに振る」
+設定になっている場合にのみ効く。amane 自身は L3 ヘッダに書くだけ。
+
+- **効くことがある**: 家庭用ルータのローカル QoS、企業LAN、法人閉域WAN、
+  一部 ISP のコア、データセンタ内 L3 スイッチ
+- **効かない**: 日本の 4G/5G 一般APN(docomo/au/SBM の spmode/au-net/plala等)
+  — P-GW/UPF で剥がす or 無視するのが通例。QCI/5QI による
+  キャリア側ベアラ分類が優先される
+- **悪影響の可能性**: 稀に ISP が「ユーザが EF を立てていい権限は無い」と
+  判定し、むしろ shaping キューに落とす。本番前に実経路で切り替え比較を推奨
+
+### 値の意味
+
+RFC 2474/4594 の標準コードポイント。カッコ内は実際に TOS バイトの上位6bit
+に書かれる 10進 DSCP 値。
+
+| 名前 | 用途 | 値 |
+|---|---|---|
+| `be` / `cs0` | Best Effort。無指定と同じ | 0 |
+| `ef` | Expedited Forwarding。最低遅延/最低ロス待遇、VoIP の標準値 | 46 |
+| `af41` | Assured Forwarding クラス4-1、インタラクティブ映像。EFよりドロップ耐性寄り、帯域取りやすい | 34 |
+| `af42` / `af43` | 同クラス、輻輳時のドロップ優先度が1段/2段上がる | 36 / 38 |
+| `af31`-`af33` | 放送映像(非対話) | 26 / 28 / 30 |
+| `af21`-`af23` | 低遅延データ(短トランザクション) | 18 / 20 / 22 |
+| `af11`-`af13` | 高スループット・遅延許容(大容量転送) | 10 / 12 / 14 |
+| `cs1` | Lower-than-BE / Scavenger。空き帯域を拾う。バックアップ・BG同期 | 8 |
+| `cs4` | Realtime Interactive。AF41の前身 | 32 |
+| `cs5` | 放送映像(旧式。AF3x相当) | 40 |
+| `cs6` / `cs7` | Network Control(ルータ間制御専用)。ユーザアプリでの使用は非推奨 | 48 / 56 |
+| `voice-admit` | VoIP admission control (RFC 5865) | 44 |
+
+### 選び方(amane 用途)
+
+- ライブ配信(SRT/業務映像など): **`ef`** または **`af41`** が順当
+  - `ef` はキュー最優先だが輻輳時にはドロップ扱い。超低遅延で量が少ない音声・制御向け
+  - `af41` は映像バースト向け。EFよりドロップに強く、帯域確保寄り
+- 法人閉域で DSCP ポリシーが決まっている場合は**その指示に従う**(別クラスを
+  指定するとかえって低優先キューに回される)
+- 一般ISP経由でよくわからない場合は **`ef`** から試して、スループット・遅延に
+  変化が無ければ既定(`be`)で問題無い
 
 ## 既知の制限(ロードマップ)
 
