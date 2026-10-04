@@ -68,8 +68,9 @@ func family(a netip.Addr) string {
 
 // DialBound creates a UDP socket bound to the interface and its current
 // address, connected to remote. Connecting pins the route through the
-// interface and filters inbound traffic to the server address.
-func DialBound(ifname string, remote netip.AddrPort) (*net.UDPConn, netip.Addr, error) {
+// interface and filters inbound traffic to the server address. dscp
+// (0-63) marks the outer packets' Diffserv code point; 0 = untouched.
+func DialBound(ifname string, remote netip.AddrPort, dscp int) (*net.UDPConn, netip.Addr, error) {
 	local, err := InterfaceAddr(ifname, remote.Addr())
 	if err != nil {
 		return nil, netip.Addr{}, err
@@ -80,7 +81,10 @@ func DialBound(ifname string, remote netip.AddrPort) (*net.UDPConn, netip.Addr, 
 			if err := bindToInterface(c, ifname, remote.Addr().Is4()); err != nil {
 				return err
 			}
-			return setDontFragment(c)
+			if err := setDontFragment(c); err != nil {
+				return err
+			}
+			return setDSCP(c, dscp)
 		},
 	}
 	network := "udp4"
@@ -95,11 +99,15 @@ func DialBound(ifname string, remote netip.AddrPort) (*net.UDPConn, netip.Addr, 
 }
 
 // Listen opens the server's listen socket (DF set for path MTU
-// discovery).
-func Listen(addr string) (*net.UDPConn, error) {
+// discovery). dscp (0-63) marks replies' Diffserv code point; 0 =
+// untouched.
+func Listen(addr string, dscp int) (*net.UDPConn, error) {
 	lc := net.ListenConfig{
 		Control: func(network, address string, c syscall.RawConn) error {
-			return setDontFragment(c)
+			if err := setDontFragment(c); err != nil {
+				return err
+			}
+			return setDSCP(c, dscp)
 		},
 	}
 	pc, err := lc.ListenPacket(context.Background(), "udp", addr)

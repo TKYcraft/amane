@@ -32,3 +32,18 @@ func setDontFragment(c syscall.RawConn) error {
 		_ = unix.SetsockoptInt(int(fd), unix.IPPROTO_IPV6, unix.IPV6_MTU_DISCOVER, unix.IPV6_PMTUDISC_PROBE)
 	})
 }
+
+// setDSCP marks outgoing packets with the given DSCP code point (0-63).
+// Linux puts DSCP in the high 6 bits of the IPv4 ToS / IPv6 Traffic
+// Class byte, so the socket value is dscp<<2. Zero (BE) leaves the
+// defaults untouched. Best-effort for the non-matching address family.
+func setDSCP(c syscall.RawConn, dscp int) error {
+	if dscp <= 0 {
+		return nil
+	}
+	tos := dscp << 2
+	return c.Control(func(fd uintptr) {
+		_ = unix.SetsockoptInt(int(fd), unix.IPPROTO_IP, unix.IP_TOS, tos)
+		_ = unix.SetsockoptInt(int(fd), unix.IPPROTO_IPV6, unix.IPV6_TCLASS, tos)
+	})
+}

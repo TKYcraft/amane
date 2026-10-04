@@ -138,6 +138,7 @@ type Client struct {
 		TunnelAddress    string   `toml:"tunnel_address"`
 		Mode             string   `toml:"mode"`
 		MTU              int      `toml:"mtu"`
+		DSCP             string   `toml:"dscp"`
 		Routes           []string `toml:"routes"`
 		ControlSocket    string   `toml:"control_socket"`
 		TunName          string   `toml:"tun_name"`
@@ -153,6 +154,7 @@ type Client struct {
 	TunnelAddr   netip.Prefix   `toml:"-"`
 	RoutePrefix  []netip.Prefix `toml:"-"`
 	SchedMode    sched.Mode     `toml:"-"`
+	DSCPValue    int            `toml:"-"`
 }
 
 // Peer is one authorized client on the server.
@@ -174,6 +176,7 @@ type Server struct {
 		PrivateKeyFile string `toml:"private_key_file"`
 		TunnelAddress  string `toml:"tunnel_address"`
 		MTU            int    `toml:"mtu"`
+		DSCP           string `toml:"dscp"`
 		ControlSocket  string `toml:"control_socket"`
 		TunName        string `toml:"tun_name"`
 		NAT            struct {
@@ -189,6 +192,7 @@ type Server struct {
 
 	PrivateKey keys.Key     `toml:"-"`
 	TunnelAddr netip.Prefix `toml:"-"`
+	DSCPValue  int          `toml:"-"`
 }
 
 func decodeStrict(path string, v any) error {
@@ -242,6 +246,9 @@ func LoadClient(path string) (*Client, error) {
 	if cc.MTU < 576 || cc.MTU > 9000 {
 		return nil, fmt.Errorf("client.mtu %d out of range", cc.MTU)
 	}
+	if c.DSCPValue, err = parseDSCP(cc.DSCP); err != nil {
+		return nil, fmt.Errorf("client.%w", err)
+	}
 	for _, r := range cc.Routes {
 		p, err := netip.ParsePrefix(r)
 		if err != nil {
@@ -292,6 +299,9 @@ func LoadServer(path string) (*Server, error) {
 	}
 	if sc.MTU < 576 || sc.MTU > 9000 {
 		return nil, fmt.Errorf("server.mtu %d out of range", sc.MTU)
+	}
+	if s.DSCPValue, err = parseDSCP(sc.DSCP); err != nil {
+		return nil, fmt.Errorf("server.%w", err)
 	}
 	if sc.ControlSocket == "" {
 		sc.ControlSocket = DefaultControlSocket
