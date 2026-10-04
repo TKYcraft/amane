@@ -67,7 +67,11 @@ func (e *Engine) wanInfoLoop() {
 				}()
 				ctx, cancel := context.WithTimeout(fetchCtx, wanInfoTimeout)
 				defer cancel()
-				info, err := ipinfo.Lookup(ctx, p.IfName, e.userAgent)
+				// Pin the lookup to the same address family the tunnel
+				// uses, so the reported public IP matches the family of
+				// the actual UDP traffic.
+				v4 := e.serverAddr.Addr().Is4()
+				info, err := ipinfo.Lookup(ctx, p.IfName, e.userAgent, v4)
 				if err != nil {
 					e.log.Debug("wan info lookup", "if", p.IfName, "err", err)
 					return

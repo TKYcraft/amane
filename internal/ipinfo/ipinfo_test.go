@@ -39,7 +39,7 @@ func TestLookupParsesCanonicalShape(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	for _, ifname := range loopbacks {
-		info, err := Lookup(ctx, ifname, "amane/test")
+		info, err := Lookup(ctx, ifname, "amane/test", true)
 		if err != nil {
 			if strings.Contains(err.Error(), "no such") || strings.Contains(err.Error(), "not found") {
 				continue
@@ -78,7 +78,7 @@ func TestLookupRejectsNon2xx(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	for _, ifname := range loopbacks {
-		_, err := Lookup(ctx, ifname, "amane/test")
+		_, err := Lookup(ctx, ifname, "amane/test", true)
 		if err != nil {
 			if strings.Contains(err.Error(), "no such") || strings.Contains(err.Error(), "not found") {
 				continue
@@ -102,7 +102,7 @@ func TestLookupRejectsMalformedJSON(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	for _, ifname := range loopbacks {
-		_, err := Lookup(ctx, ifname, "amane/test")
+		_, err := Lookup(ctx, ifname, "amane/test", true)
 		if err != nil {
 			if strings.Contains(err.Error(), "no such") || strings.Contains(err.Error(), "not found") {
 				continue
@@ -126,7 +126,7 @@ func TestLookupRejectsEmptyIP(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	for _, ifname := range loopbacks {
-		_, err := Lookup(ctx, ifname, "amane/test")
+		_, err := Lookup(ctx, ifname, "amane/test", true)
 		if err != nil {
 			if strings.Contains(err.Error(), "no such") || strings.Contains(err.Error(), "not found") {
 				continue
