@@ -22,18 +22,25 @@ const (
 // (MTURestart drops the cached entry). No periodic refresh: the info
 // only changes when the interface state changes.
 func (e *Engine) wanInfoLoop() {
-	var inflightMu sync.Mutex
-	inflight := make(map[byte]bool)
-	t := time.NewTicker(wanInfoSweep)
-	defer t.Stop()
-	for {
+	// Lookups are issued as sub-goroutines; tie their context to e.stop
+	// so Stop() aborts in-flight HTTP requests instead of leaving them
+	// to run out their 5s timeout.
+	fetchCtx, fetchCancel := context.WithCancel(context.Background())
+	defer fetchCancel()
+	go func() {
 		select {
 		case <-e.stop:
-			return
-		case <-t.C:
+			fetchCancel()
+		case <-fetchCtx.Done():
 		}
+	}()
+
+	var inflightMu sync.Mutex
+	inflight := make(map[byte]bool)
+
+	sweep := func() {
 		if e.sess == nil {
-			continue
+			return
 		}
 		for i := range e.sess.paths {
 			p := e.sess.paths[i].Load()
@@ -50,13 +57,15 @@ func (e *Engine) wanInfoLoop() {
 			}
 			inflight[p.ID] = true
 			inflightMu.Unlock()
+			e.wg.Add(1)
 			go func(p *path.Path) {
+				defer e.wg.Done()
 				defer func() {
 					inflightMu.Lock()
 					delete(inflight, p.ID)
 					inflightMu.Unlock()
 				}()
-				ctx, cancel := context.WithTimeout(context.Background(), wanInfoTimeout)
+				ctx, cancel := context.WithTimeout(fetchCtx, wanInfoTimeout)
 				defer cancel()
 				info, err := ipinfo.Lookup(ctx, p.IfName, e.userAgent)
 				if err != nil {
@@ -66,6 +75,20 @@ func (e *Engine) wanInfoLoop() {
 				p.SetWANInfo(&info)
 				e.log.Info("wan info", "if", p.IfName, "ip", info.IP, "asn", info.ASN, "org", info.ASOrg)
 			}(p)
+		}
+	}
+
+	// Fire once immediately so the first lookup lands within the handshake
+	// window rather than waiting a full sweep interval.
+	sweep()
+	t := time.NewTicker(wanInfoSweep)
+	defer t.Stop()
+	for {
+		select {
+		case <-e.stop:
+			return
+		case <-t.C:
+			sweep()
 		}
 	}
 }
