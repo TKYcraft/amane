@@ -39,19 +39,29 @@ type response struct {
 }
 
 // Lookup fetches WAN info for the local interface ifname by sending an
-// HTTPS GET to URL through a TCP socket bound to that interface. The
-// User-Agent is set to userAgent so the service can count distinct
-// amane versions. Non-2xx replies and schema mismatches become errors.
-func Lookup(ctx context.Context, ifname, userAgent string) (Info, error) {
+// HTTPS GET to URL through a TCP socket bound to that interface. v4
+// forces the connection to use IPv4 (true) or IPv6 (false), matching
+// the address family the tunnel itself is using for this path — the
+// endpoint may offer both A and AAAA records, and Happy Eyeballs could
+// otherwise return the IPv6 address when the tunnel is actually
+// running on IPv4 (or vice-versa). The User-Agent is set to userAgent
+// so the service can count distinct amane versions. Non-2xx replies
+// and schema mismatches become errors.
+func Lookup(ctx context.Context, ifname, userAgent string, v4 bool) (Info, error) {
 	dialer := &net.Dialer{
 		Timeout: 3 * time.Second,
-		Control: func(network, address string, c syscall.RawConn) error {
-			v4 := network == "tcp4"
+		Control: func(_, _ string, c syscall.RawConn) error {
 			return bindToInterface(c, ifname, v4)
 		},
 	}
+	network := "tcp4"
+	if !v4 {
+		network = "tcp6"
+	}
 	transport := &http.Transport{
-		DialContext:           dialer.DialContext,
+		DialContext: func(ctx context.Context, _, addr string) (net.Conn, error) {
+			return dialer.DialContext(ctx, network, addr)
+		},
 		TLSHandshakeTimeout:   3 * time.Second,
 		ResponseHeaderTimeout: 3 * time.Second,
 		DisableKeepAlives:     true,
