@@ -27,8 +27,10 @@ func isClosedErr(err error) bool {
 	return errors.Is(err, net.ErrClosed)
 }
 
-// StartClient boots the client engine.
-func StartClient(cfg *config.Client, log *slog.Logger) (*Engine, error) {
+// StartClient boots the client engine. userAgent is set on the WAN
+// info lookup's HTTPS request so the service can see which amane
+// version a client is running.
+func StartClient(cfg *config.Client, log *slog.Logger, userAgent string) (*Engine, error) {
 	serverAddr, err := udp.Resolve(cfg.Client.Server)
 	if err != nil {
 		return nil, fmt.Errorf("resolve server %q: %w", cfg.Client.Server, err)
@@ -59,6 +61,7 @@ func StartClient(cfg *config.Client, log *slog.Logger) (*Engine, error) {
 		notifyTooBig: cfg.Tuning.NotifyPTB(),
 		ptbLimiter:   pmtunotify.NewLimiter(4, 8),
 		dscp:         cfg.DSCPValue,
+		userAgent:    userAgent,
 		ccfg:         cfg,
 		serverAddr:   serverAddr,
 		hsRespCh:     make(chan hsResp, 4),
@@ -73,6 +76,7 @@ func StartClient(cfg *config.Client, log *slog.Logger) (*Engine, error) {
 	e.goRun("tunWriter", e.tunWriter)
 	e.goRun("supervisor", e.clientSupervisor)
 	e.goRun("linkManager", e.linkManager)
+	e.goRun("wanInfoLoop", e.wanInfoLoop)
 	e.sess.startLoops()
 	log.Info("client started", "tun", tun.Name(), "server", serverAddr.String(), "mode", cfg.SchedMode.String())
 	return e, nil

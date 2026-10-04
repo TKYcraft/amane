@@ -52,6 +52,10 @@ type Engine struct {
 	// packet this engine sends.
 	dscp int
 
+	// userAgent identifies this amane build for the WAN info lookup's
+	// outbound HTTPS request (client only).
+	userAgent string
+
 	// client
 	ccfg       *config.Client
 	serverAddr netip.AddrPort

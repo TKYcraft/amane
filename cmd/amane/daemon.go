@@ -49,7 +49,7 @@ func runDaemon(args []string, server bool) error {
 			return cerr
 		}
 		socket = cfg.Client.ControlSocket
-		eng, err = engine.StartClient(cfg, log)
+		eng, err = engine.StartClient(cfg, log, "amane/"+version)
 	}
 	if err != nil {
 		return err
