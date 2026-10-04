@@ -25,6 +25,12 @@ type PathStatus struct {
 	TxBps    float64 `json:"tx_bps"`
 	RxBps    float64 `json:"rx_bps"`
 	Weight   float64 `json:"weight"` // share of scheduling, 0..1
+	// WAN info from the per-link lookup (empty when disabled or
+	// not-yet-fetched).
+	WANIP   string `json:"wan_ip,omitempty"`
+	ASN     int    `json:"asn,omitempty"`
+	ASOrg   string `json:"as_org,omitempty"`
+	Country string `json:"country,omitempty"`
 }
 
 // ReorderStatus mirrors reorder.Stats.

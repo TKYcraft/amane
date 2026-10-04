@@ -84,6 +84,12 @@ func (s *session) status() ctl.SessionStatus {
 		if ep := p.Endpoint(); ep.IsValid() {
 			ps.Endpoint = ep.String()
 		}
+		if w := p.WANInfo(); w != nil {
+			ps.WANIP = w.IP
+			ps.ASN = w.ASN
+			ps.ASOrg = w.ASOrg
+			ps.Country = w.Country
+		}
 		out.Paths = append(out.Paths, ps)
 	}
 	return out

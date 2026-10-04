@@ -54,11 +54,11 @@ func printStatus(st *ctl.Status) {
 		fmt.Printf("SESSION  %s%s   state=%s  mode=%s  key_age=%.0fs\n",
 			s.Name, ep, s.State, s.Mode, s.EpochAgeSec)
 		if len(s.Paths) > 0 {
-			fmt.Printf("%-4s %-10s %-22s %-9s %-5s %-8s %-6s %-10s %-10s %s\n",
-				"PATH", "IF", "ENDPOINT", "STATE", "MTU", "RTT", "LOSS", "TX", "RX", "WEIGHT")
+			fmt.Printf("%-4s %-10s %-40s %-9s %-5s %-8s %-6s %-10s %-10s %s\n",
+				"PATH", "IF", "WAN", "STATE", "MTU", "RTT", "LOSS", "TX", "RX", "WEIGHT")
 			for _, p := range s.Paths {
-				fmt.Printf("%-4d %-10s %-22s %-9s %-5s %-8s %-6s %-10s %-10s %.0f%%\n",
-					p.ID, orDash(p.IfName), orDash(p.Endpoint), p.State, fmtMTU(p.MTU),
+				fmt.Printf("%-4d %-10s %-40s %-9s %-5s %-8s %-6s %-10s %-10s %.0f%%\n",
+					p.ID, orDash(p.IfName), fmtWAN(p.WANIP, p.ASN, p.ASOrg), p.State, fmtMTU(p.MTU),
 					fmtRTT(p.SRTTMs), fmtPct(p.LossPct),
 					fmtBps(p.TxBps), fmtBps(p.RxBps), p.Weight*100)
 			}
@@ -103,6 +103,27 @@ func fmtPct(p float64) string {
 		return "-"
 	}
 	return fmt.Sprintf("%.1f%%", p)
+}
+
+// fmtWAN renders the per-link public-IP/ASN annotation. Empty IP (lookup
+// disabled or not yet complete) collapses to a dash. Long org names are
+// truncated so the column keeps a predictable width.
+func fmtWAN(ip string, asn int, org string) string {
+	if ip == "" {
+		return "-"
+	}
+	parts := ip
+	if asn > 0 {
+		parts += fmt.Sprintf(" AS%d", asn)
+	}
+	if org != "" {
+		const maxOrg = 22
+		if len(org) > maxOrg {
+			org = org[:maxOrg-1] + "…"
+		}
+		parts += " " + org
+	}
+	return parts
 }
 
 func fmtBps(b float64) string {

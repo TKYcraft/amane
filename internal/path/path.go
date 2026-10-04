@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/TKYcraft/amane/internal/ipinfo"
 	"github.com/TKYcraft/amane/internal/pmtud"
 	"github.com/TKYcraft/amane/internal/sched"
 	"github.com/TKYcraft/amane/internal/wire"
@@ -87,6 +88,11 @@ type Path struct {
 	discoveredMTU atomic.Int64
 	maxInner      atomic.Int64
 
+	// wanInfo is the last successful public-IP / ASN lookup for this
+	// path's link, or nil if lookups are disabled or none has succeeded
+	// yet. Populated out-of-band by the engine's wan info loop.
+	wanInfo atomic.Pointer[ipinfo.Info]
+
 	mu sync.Mutex
 	// probe bookkeeping (under mu)
 	probeSeq      uint32
@@ -133,7 +139,15 @@ func (p *Path) MTURestart() {
 	p.mtu.Restart()
 	p.discoveredMTU.Store(0)
 	p.maxInner.Store(0)
+	p.wanInfo.Store(nil)
 }
+
+// SetWANInfo records a fresh public-IP / ASN lookup result. nil clears
+// the stored info (e.g. after a rebind).
+func (p *Path) SetWANInfo(info *ipinfo.Info) { p.wanInfo.Store(info) }
+
+// WANInfo returns the last stored lookup result, or nil if none.
+func (p *Path) WANInfo() *ipinfo.Info { return p.wanInfo.Load() }
 
 // MTUDiscovered returns the prober's current result (0 unknown, -1 dead,
 // else wire MTU).

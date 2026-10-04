@@ -214,6 +214,34 @@ RFC 2474/4594 の標準コードポイント。カッコ内は実際に TOS バ�
 - 一般ISP経由でよくわからない場合は **`ef`** から試して、スループット・遅延に
   変化が無ければ既定(`be`)で問題無い
 
+## リンクごとの公開IP/ASN表示(client のみ)
+
+`amane status` に、各リンクが**実際に外に出ている公開IPとASN**を表示する。
+クライアント起動時に自動的に有効(設定は不要)。
+
+- **仕組み**: クライアントがリンクごとに TCP ソケットを `SO_BINDTODEVICE`(Linux)
+  / `IP_BOUND_IF`(macOS)でそのインターフェースに縛って、`https://ip.alicey.dev`
+  へ HTTPS GET。レスポンスは
+  `{"ip":..., "asn":..., "asOrganization":..., "country":...}` を期待
+  (他のフィールドは無視)。各リンク別に独立に走るので、同じサーバを
+  叩いていても到着する公開IPがリンクごとに異なる(=キャリアごとに違う)
+- **User-Agent**: `amane/<version>`(ビルド時の VERSION)。lookup サーバ側で
+  バージョン別アクセス数を集計できる
+- **タイミング**: 15秒ごとのスイープで、WAN info 未取得の Active パスにのみ
+  フェッチ。一度成功すればパス消滅または rebind(DHCP renumber, roaming)で
+  クリアされるまで再取得しない — IF が変化しないなら公開IPも変わらない前提
+- **タイムアウト**: dial 3秒 + TLS 3秒 + total 5秒
+- **プライバシ**: amane のクライアント公開IPが `ip.alicey.dev` に送られる
+  (当該ホスト側で aggregate 利用統計取得のため)
+- **サーバ側**: 対象外(リレーサーバのWANは単一・既知のため)
+
+status 表示例:
+```
+PATH IF         WAN                                      STATE   ...
+0    wwan0      198.51.100.10 AS64500 ExampleTelecom     active  ...
+1    wwan1      203.0.113.42 AS64501 OtherCarrier Inc.   active  ...
+```
+
 ## 既知の制限(ロードマップ)
 
 - TCPの弾性トラフィックはRTT差のあるパス束ね上で性能が出にくい
