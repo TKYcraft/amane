@@ -29,7 +29,7 @@ func StartServer(cfg *config.Server, log *slog.Logger) (*Engine, error) {
 		return nil, err
 	}
 
-	conn, err := udp.Listen(cfg.Server.Listen)
+	conn, err := udp.Listen(cfg.Server.Listen, cfg.DSCPValue)
 	if err != nil {
 		tun.Close()
 		return nil, fmt.Errorf("listen %s: %w", cfg.Server.Listen, err)
@@ -46,6 +46,7 @@ func StartServer(cfg *config.Server, log *slog.Logger) (*Engine, error) {
 		tunOut:       make(chan rxPkt, 4096),
 		notifyTooBig: cfg.Tuning.NotifyPTB(),
 		ptbLimiter:   pmtunotify.NewLimiter(4, 8),
+		dscp:         cfg.DSCPValue,
 		scfg:         cfg,
 		conn:         conn,
 		peers:        make(map[keys.Key]*session),

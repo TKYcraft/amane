@@ -58,6 +58,7 @@ func StartClient(cfg *config.Client, log *slog.Logger) (*Engine, error) {
 		tunOut:       make(chan rxPkt, 4096),
 		notifyTooBig: cfg.Tuning.NotifyPTB(),
 		ptbLimiter:   pmtunotify.NewLimiter(4, 8),
+		dscp:         cfg.DSCPValue,
 		ccfg:         cfg,
 		serverAddr:   serverAddr,
 		hsRespCh:     make(chan hsResp, 4),
@@ -118,7 +119,7 @@ func (e *Engine) setupLinks() {
 	// Adds and address changes.
 	for ifname, hint := range want {
 		p := byIf[ifname]
-		conn, local, err := udp.DialBound(ifname, e.serverAddr)
+		conn, local, err := udp.DialBound(ifname, e.serverAddr, e.dscp)
 		if err != nil {
 			if p != nil && p.State() != path.Down && p.State() != path.Removed {
 				e.markLinkGone(p)

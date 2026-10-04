@@ -48,6 +48,10 @@ type Engine struct {
 	// ptbLimiter rate-limits per inner-source ICMP replies.
 	ptbLimiter *pmtunotify.Limiter
 
+	// dscp (0..63) is the Diffserv marking applied to every outer UDP
+	// packet this engine sends.
+	dscp int
+
 	// client
 	ccfg       *config.Client
 	serverAddr netip.AddrPort

@@ -159,6 +159,21 @@ L3トンネルなので順序保証はしない方針(「待ちすぎない」):
 - 実測(netns、ルータ区間のみMTU 1300): 上下方向とも粒度内で発見、フルサイズUDPは
   制約パスを自動回避してロス0%(PMTUDなしなら約半分がブラックホール)。
 
+## DiffServ マーキング(DSCP)
+
+外側UDPパケットの ToS / Traffic Class 上位6bitに DSCP code point を乗せる。
+`[client] dscp = "ef"` (または `[server] dscp = "ef"`) で有効化。シンボル名
+(RFC 2474/4594: ef/af11-43/cs0-7/be/voice-admit)または 0..63 整数で指定。
+
+- 実装は socket オプション: Linux `IP_TOS`/`IPV6_TCLASS`, macOS 同名。
+  `IP_TOS = dscp << 2`。全パス socket と server listen socket に同じ値を適用。
+- 効果は経路依存: 日本の 4G/5G 一般APNは P-GW/UPF で剥がす or 無視するのが通例。
+  自宅ルータ・エンプラ閉域・一部 ISP のコアでは尊重される。Discord の
+  「高いパケット優先度を有効化」と同じ仕組み・同じ限界。
+- 悪影響の可能性: 稀に ISP 側が「ユーザ EF 不許可」として shaping キューに
+  落とす。本番投入前に実経路で切り替え比較推奨。
+- 既定は 0(BE)でソケット側は何も設定しない。
+
 ## 既知の制限(ロードマップ)
 
 - TCPの弾性トラフィックはRTT差のあるパス束ね上で性能が出にくい

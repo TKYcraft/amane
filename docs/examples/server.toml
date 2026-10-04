@@ -6,6 +6,9 @@ tunnel_address   = "10.77.0.1/24"
 # mtu = WAN経路MTUの最小値 - 68。既定1400はWAN MTU>=1468前提。
 # 例: サーバ回線のMTUが1460なら 1460-68 = 1392(クライアントと同じ値にする)
 # mtu            = 1392
+# 外側UDPパケットの DiffServ マーキング。シンボル名(ef/af41/cs6/be 等)または
+# 0..63 の整数。クライアント側と独立に設定可能。既定は be。
+# dscp           = "ef"
 # control_socket = "/var/run/amane.sock"
 
 [server.nat]

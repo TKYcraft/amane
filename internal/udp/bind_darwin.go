@@ -39,3 +39,18 @@ func setDontFragment(c syscall.RawConn) error {
 		_ = unix.SetsockoptInt(int(fd), unix.IPPROTO_IPV6, unix.IPV6_DONTFRAG, 1)
 	})
 }
+
+// setDSCP marks outgoing packets with the given DSCP code point (0-63).
+// macOS, like Linux, carries DSCP in the high 6 bits of ToS / Traffic
+// Class, so the socket value is dscp<<2. Zero (BE) leaves the defaults
+// untouched. Best-effort for the non-matching address family.
+func setDSCP(c syscall.RawConn, dscp int) error {
+	if dscp <= 0 {
+		return nil
+	}
+	tos := dscp << 2
+	return c.Control(func(fd uintptr) {
+		_ = unix.SetsockoptInt(int(fd), unix.IPPROTO_IP, unix.IP_TOS, tos)
+		_ = unix.SetsockoptInt(int(fd), unix.IPPROTO_IPV6, unix.IPV6_TCLASS, tos)
+	})
+}
